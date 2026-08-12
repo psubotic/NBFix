@@ -168,3 +168,33 @@ npm run build:prod
 
 then restart `jupyter lab` (a hard browser refresh may also be needed to
 pick up the new bundle).
+
+### Or: run it in Docker (no local Node/Python setup needed)
+
+`Dockerfile` builds the same server extension + labextension above into a
+self-contained image, so you don't need Node, npm, or a Python venv on your
+own machine at all:
+
+```bash
+docker build -t nbsynth-jupyterlab .
+docker run -p 8888:8888 -v "$(pwd):/home/nbsynth/work" nbsynth-jupyterlab
+```
+
+JupyterLab generates a fresh access token on every start and prints it to
+the container logs - no token is baked into the image. Check
+`docker logs <container>` (or the terminal, if run in the foreground) for a
+line like:
+
+```
+http://127.0.0.1:8888/lab?token=<token>
+```
+
+and open that URL in a browser. The `-v` mount above puts your local
+directory at `/home/nbsynth/work` inside the container, so notebooks you
+open/save there persist on your host machine; drop it if you just want to
+try NBSynth against the container's own filesystem.
+
+The build is a multi-stage Dockerfile - Node.js is only used in the build
+stage to compile the labextension and never ends up in the final image, so
+the runtime image (~540MB) is close to a plain JupyterLab install rather
+than carrying a full Node toolchain.

@@ -25,6 +25,13 @@ dev = [
 jupyter = [
     "jupyter_server>=2.0,<3",
 ]
+# LLM-assisted bug detection, grounded in NBSynth's own dependency/def-use
+# analysis. Kept fully optional and separate from `dev`/`jupyter` - the
+# base package and the JupyterLab extension must never gain an import-time
+# dependency on an LLM client just because this feature exists.
+llm = [
+    "openai>=1.0",
+]
 
 [project.scripts]
 nbsynth = "nbsynth.cli:main"

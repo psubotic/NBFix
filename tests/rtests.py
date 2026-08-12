@@ -3,8 +3,7 @@ from analyzer import NBSynth
 from argparse import ArgumentParser
 from events import RunBatchEvent
 from analyses.runner.analysis_results import ErrorInfo, PathResult, Result, ErrorType
-from resource_utils.rsrc_mngr import ResourceManager
-from resource_utils.utils import is_script
+from resource_utils.utils import is_script, read_json
 import csv
 import os
 from tqdm import tqdm
@@ -31,7 +30,6 @@ def make_result(res) -> Result:
 
 def tester(folder):
     folder = "./nbsynth_backend/tests/resources/rtests/" if folder is None else folder
-    mng = ResourceManager()
     print("using folder "  + folder)
     dir_list = os.listdir(folder)
     for f in tqdm(dir_list):
@@ -39,7 +37,7 @@ def tester(folder):
             continue
 
         print("Test file: " + f)
-        notebook = mng.grab_local_json(folder+f)
+        notebook = read_json(folder+f)
         nbsynth = NBSynth(level=5)
         nbsynth.load_notebook(notebook["cells"])
         nbsynth.add_analyses([constants.DATA_LEAK, constants.STALE, constants.ISOLATED, constants.IDLE])

@@ -2,15 +2,14 @@ import unittest
 import json
 from nbsynth.analyses.dataleak_analysis import DataLeakAnalysis
 from nbsynth.analyses.stale_cell_analysis import StaleCellAnalysis
-from nbsynth.resource_utils.utils import load_notebook, TEST_RES_PATH
-from nbsynth.resource_utils.rsrc_mngr import mngr
+from nbsynth.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
 from nbsynth.analyzer import NBSynth
 from nbsynth.constants import *
 
 
 class Testnbsynth(unittest.TestCase):
     def setUp(self) -> None:
-        self.notebook_json = mngr.grab_local_json(TEST_RES_PATH + "dataleak_true.ipynb")[
+        self.notebook_json = read_json(TEST_RES_PATH + "dataleak_true.ipynb")[
             "cells"
         ]
         self.nbsynth = NBSynth()

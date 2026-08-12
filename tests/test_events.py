@@ -2,8 +2,7 @@ import unittest
 import json
 from nbsynth.events import *
 from nbsynth.analyzer import NBSynth
-from nbsynth.resource_utils.utils import TEST_RES_PATH
-from nbsynth.resource_utils.rsrc_mngr import mngr
+from nbsynth.resource_utils.utils import read_json, TEST_RES_PATH
 from nbsynth.constants import *
 
 
@@ -11,7 +10,7 @@ class TestEvents(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
         self.nbsynth = NBSynth()
-        notebook_json = mngr.grab_local_json(TEST_RES_PATH + "dataleak_true.ipynb")["cells"]
+        notebook_json = read_json(TEST_RES_PATH + "dataleak_true.ipynb")["cells"]
         self.nbsynth.load_notebook(notebook_json)
         self.nbsynth.add_analyses(
             [DATA_LEAK, STALE, IDLE]

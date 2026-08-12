@@ -3,8 +3,7 @@ from sre_parse import fix_flags
 from analyzer import NBSynth
 from argparse import ArgumentParser
 from events import RunBatchEvent
-from resource_utils.rsrc_mngr import ResourceManager
-from resource_utils.utils import is_script
+from resource_utils.utils import is_script, read_json
 import csv
 import os
 from tqdm import tqdm
@@ -13,7 +12,6 @@ import json
 
 def benchmark(folder, analyses, level, output, filter, notebooks_to_run = None):
     nb_stats = []
-    mng = ResourceManager()
     if notebooks_to_run:
         dir_list = notebooks_to_run
     else:
@@ -28,9 +26,9 @@ def benchmark(folder, analyses, level, output, filter, notebooks_to_run = None):
             continue
 
         try:
-            notebook = mng.grab_local_json(folder+f)
+            notebook = read_json(folder+f)
         except FileNotFoundError:
-            notebook = mng.grab_local_json(folder + "\\" + f)
+            notebook = read_json(folder + "\\" + f)
         except json.decoder.JSONDecodeError:
             print("Warning decode error ")
             continue

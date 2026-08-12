@@ -1,14 +1,13 @@
 import unittest
 from nbsynth.analyses.stale_cell_analysis import StaleCellAnalysis
 from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.resource_utils.utils import load_notebook, TEST_RES_PATH
-from nbsynth.resource_utils.rsrc_mngr import mngr
+from nbsynth.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
 
 
 class TestStaleCellAnalysis(unittest.TestCase):
     def test_analyze_notebook(self):
         test_IR = load_notebook(
-            mngr.grab_local_json(TEST_RES_PATH + "Test.ipynb")["cells"]
+            read_json(TEST_RES_PATH + "Test.ipynb")["cells"]
         )
         analyzer_test: StaleCellAnalysis = StaleCellAnalysis()
         analyzer_test.find_necessary_cells(test_IR)
@@ -27,7 +26,7 @@ class TestStaleCellAnalysis(unittest.TestCase):
         )
 
         basic_IR = load_notebook(
-            mngr.grab_local_json(TEST_RES_PATH + "Basic.ipynb")["cells"]
+            read_json(TEST_RES_PATH + "Basic.ipynb")["cells"]
         )
         analyzer_basic = StaleCellAnalysis()
         analyzer_basic.find_necessary_cells(basic_IR)

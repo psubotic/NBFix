@@ -1,9 +1,19 @@
+from json import load
+
 from ..ir.intermediate_representations import IntermediateRepresentations
 
 TEST_RES_PATH = "./tests/resources/"
 
 def is_script(filename):
     return filename.endswith(".py")
+
+def read_json(path):
+    with open(path, "rb") as f:
+        return load(f)
+
+def read_file(path):
+    with open(path, "r") as f:
+        return f.read()
 
 def load_notebook(notebook_json):
     notebook_IR = {}

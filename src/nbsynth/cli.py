@@ -2,20 +2,18 @@ from argparse import ArgumentParser
 
 from .analyzer import NBSynth
 from .events import RunBatchEvent
-from .resource_utils.rsrc_mngr import ResourceManager
-from .resource_utils.utils import is_script
+from .resource_utils.utils import is_script, read_file, read_json
 
 def nbsynth(filename, notebook,  analyses,  start, level=5):
     code_nbsynth = NBSynth(level = level)
     assert(not (filename and notebook))
-    mng = ResourceManager()
     if (notebook is None):
         assert(filename)
         if is_script(filename):
-            notebook = mng.grab_local_file(filename)
+            notebook = read_file(filename)
             code_nbsynth.load_script(notebook)
         else:
-            notebook = mng.grab_local_json(filename)
+            notebook = read_json(filename)
             code_nbsynth.load_notebook(notebook["cells"])
     else:
         code_nbsynth.load_notebook(notebook["cells"])

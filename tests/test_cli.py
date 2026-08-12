@@ -1,7 +1,6 @@
 import unittest
 from nbsynth.cli import *
-from nbsynth.resource_utils.utils import TEST_RES_PATH
-from nbsynth.resource_utils.rsrc_mngr import mngr
+from nbsynth.resource_utils.utils import read_json, TEST_RES_PATH
 from nbsynth.constants import *
 
 class TestNBSynthCLI(unittest.TestCase):
@@ -63,7 +62,7 @@ class TestNBSynthCLI(unittest.TestCase):
     def test_dataleak(self):
         results_true = nbsynth(
                 filename=None,
-                notebook=mngr.grab_local_json(TEST_RES_PATH + "dataleak_true.ipynb"),
+                notebook=read_json(TEST_RES_PATH + "dataleak_true.ipynb"),
                 analyses=[DATA_LEAK],
                 start=0,
                 level=10
@@ -71,7 +70,7 @@ class TestNBSynthCLI(unittest.TestCase):
         self.assertEqual(results_true, '[{"cell_id":4,"errors":[{"line":2,"label":"X_selected_test", "error_type":"ErrorType.TERMINAL", "message":"Training model with data leak."}],"path":[0, 1, 2, 3, 4]}]')
         results_false = nbsynth(
                 filename=None,
-                notebook=mngr.grab_local_json(TEST_RES_PATH + "dataleak_false.ipynb"),
+                notebook=read_json(TEST_RES_PATH + "dataleak_false.ipynb"),
                 analyses=[DATA_LEAK],
                 start=0,
                 level=10

@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# JupyterLab extension build artifacts
+node_modules/
+jupyterlab-nbsynth/lib/
+jupyterlab-nbsynth/tsconfig.tsbuildinfo
+jupyterlab-nbsynth/jupyterlab_nbsynth/labextension/

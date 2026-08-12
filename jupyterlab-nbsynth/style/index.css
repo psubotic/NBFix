@@ -1,0 +1,2 @@
+/* NBSynth diagnostics are rendered entirely through the CodeMirror linter
+   extension registered in src/linter.ts; no custom styling is needed yet. */

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
 
 [project]
 name = "nbsynth"
@@ -15,13 +15,22 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-jupyter[server]>=0.9",
+]
+# Registers the nbsynth REST API inside a running Jupyter server. This is
+# deliberately just jupyter_server, not jupyterlab - the labextension that
+# talks to this API is a separate package (jupyterlab-nbsynth/) so that
+# installing it (and its jupyterlab/Node build-time cost) is opt-in and
+# doesn't weigh down a plain `pip install nbsynth`.
+jupyter = [
+    "jupyter_server>=2.0,<3",
 ]
 
 [project.scripts]
 nbsynth = "nbsynth.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/nbsynth"]
 
-[tool.setuptools.package-data]
-nbsynth = ["parser/grammar/*.lark"]
+[tool.hatch.build.targets.wheel.shared-data]
+"jupyter-config/jupyter_server_config.d" = "etc/jupyter/jupyter_server_config.d"

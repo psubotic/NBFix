@@ -28,11 +28,13 @@ src/nbsynth/
   parser/       grammar, AST, CFG builder, def-use analysis (see parser/README.md)
   ir/           per-cell intermediate representation, built on top of parser/
   analyses/     the four analyses above, plus their abstract domains/states
-  resource_utils/  notebook loading (local files or Azure blob storage)
+  resource_utils/  local notebook/file loading
+  serverextension/ jupyter_server REST extension exposing NBSynth's events over HTTP
   analyzer.py   NBSynth: the top-level per-notebook analysis driver
-  cli.py, server.py, events.py, benchmarker.py
-tests/          pytest test suite + notebook fixtures
-extension/      VS Code extension (TypeScript)
+  cli.py, events.py, benchmarker.py
+tests/            pytest test suite + notebook fixtures
+extension/        VS Code extension prototype (TypeScript, unfinished)
+jupyterlab-nbsynth/  JupyterLab labextension (TypeScript) - live diagnostics in the editor
 ```
 
 ## Getting started
@@ -44,6 +46,31 @@ pytest tests/
 
 ## VS Code extension
 
-`extension/` is a VS Code extension that talks to a running NBSynth
-server (`nbsynth.server`) over a local socket to surface analysis results
-in the editor. See `extension/src/`.
+`extension/` is an unfinished VS Code extension prototype that talks to a
+local socket server to surface analysis results in the editor. It predates
+the JupyterLab extension below and isn't currently buildable (no
+`package.json`).
+
+## JupyterLab extension
+
+Live NBSynth diagnostics inside JupyterLab - squiggly underlines on cells as
+you edit, add, remove, and run them - are split across two packages so that
+installing the JupyterLab UI (which needs `jupyterlab` and a Node/npm
+toolchain at build time) never weighs down a plain `pip install nbsynth`:
+
+- `nbsynth[jupyter]` - registers the `jupyter_server` REST API
+  (`src/nbsynth/serverextension/`) that runs NBSynth's analysis engine
+  against a notebook and returns diagnostics. Pure Python, no Node needed.
+- `jupyterlab-nbsynth/` - the JupyterLab labextension (TypeScript) that
+  talks to that API and renders diagnostics via CodeMirror.
+
+To use it in a running JupyterLab:
+
+```
+pip install "nbsynth[jupyter]"
+pip install ./jupyterlab-nbsynth   # builds the labextension; needs Node/npm
+jupyter lab
+```
+
+`jupyter server extension list` / `jupyter labextension list` should show
+`nbsynth.serverextension` and `jupyterlab-nbsynth` respectively as enabled.

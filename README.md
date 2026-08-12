@@ -1,5 +1,7 @@
 # NBSynth
 
+[![Tests](https://github.com/psubotic/NBSynth/actions/workflows/tests.yml/badge.svg)](https://github.com/psubotic/NBSynth/actions/workflows/tests.yml)
+
 Static analysis framework for data science notebooks.
 
 NBSynth parses notebook-cell code with its own grammar/parser (built on

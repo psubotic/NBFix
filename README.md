@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="NBSynth" width="800">
+</p>
+
 # NBSynth
 
 [![Tests](https://github.com/psubotic/NBSynth/actions/workflows/tests.yml/badge.svg)](https://github.com/psubotic/NBSynth/actions/workflows/tests.yml)

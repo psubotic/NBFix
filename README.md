@@ -6,24 +6,41 @@
 
 [![Tests](https://github.com/psubotic/NBFix/actions/workflows/tests.yml/badge.svg)](https://github.com/psubotic/NBFix/actions/workflows/tests.yml)
 
-Static analysis framework for data science notebooks.
+Static analysis + LLM-assisted bug detection for data science notebooks.
 
 NBFix parses notebook-cell code with its own grammar/parser (built on
-[Lark](https://github.com/lark-parser/lark)), builds a control-flow graph
-and def-use analysis from that, and runs a set of analyses over the
-result:
+[Lark](https://github.com/lark-parser/lark)) and builds a control-flow
+graph and cross-cell def-use/dependency analysis from that. That structure
+gets used two ways:
 
-1. **Stale cell detection** — a cell is stale if it uses identifiers whose
-   definitions were affected by changes made in another cell.
-2. **Idle cell detection** — a cell is idle if running it (regardless of
-   edits) can't change the state of any other cell.
-3. **Isolated cell detection** — a cell is isolated if none of its
-   definitions depend on identifiers from other cells, and none of its
-   identifiers are used outside the cell.
-4. **Data leakage analysis** — flags training a model on data that overlaps
-   with its test set.
+1. **Four deterministic analyses** run directly over the CFG/dependency
+   graph, each catching one specific, provable bug class - no LLM involved,
+   no false positives from a model guessing:
+   - **Stale cell detection** — a cell is stale if it uses identifiers
+     whose definitions were affected by changes made in another cell.
+   - **Idle cell detection** — a cell is idle if running it (regardless of
+     edits) can't change the state of any other cell.
+   - **Isolated cell detection** — a cell is isolated if none of its
+     definitions depend on identifiers from other cells, and none of its
+     identifiers are used outside the cell.
+   - **Data leakage analysis** — flags training a model on data that
+     overlaps with its test set.
+2. **LLM-assisted bug detection** (`src/nbfix/llm/`, opt-in - see
+   [`llm/README.md`](src/nbfix/llm/README.md)) hands that *same*
+   dependency graph to a local or hosted LLM as grounding context, for the
+   broader class of bugs the four analyses above were never built to
+   catch. The point of feeding it real structure (which cell defines what,
+   what depends on what) rather than just raw code is that a small, cheap
+   model shouldn't need to re-derive that cross-cell reasoning itself —
+   it's exactly the kind of multi-hop dependency tracking that's
+   hallucination-prone for a model and already computed exactly, for
+   free, by the CFG. The goal is a small local model performing closer to
+   a large hosted one, at a fraction of the cost, because the hard part of
+   the reasoning was already done deterministically.
 
-All analyses are still evolving (WIP).
+Both are still evolving (WIP) - see [`parser/README.md`](src/nbfix/parser/README.md)
+and [`llm/README.md`](src/nbfix/llm/README.md) for the tracked backlog of
+each.
 
 ## Project layout
 

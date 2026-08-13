@@ -96,3 +96,22 @@ jupyter lab
 
 `jupyter server extension list` / `jupyter labextension list` should show
 `nbfix.serverextension` and `jupyterlab-nbfix` respectively as enabled.
+
+## Community release backlog
+
+Not yet done - tracked here since it doesn't belong to either subsystem
+backlog above. Revisit once the CLI/JupyterLab/VS Code manual pass
+(currently in progress) is done and the maintainer is happy with NBFix's
+state.
+
+- [ ] **Packaging mechanics.** PyPI release for `nbfix` (and
+  `jupyterlab-nbfix` per the usual JupyterLab-extension distribution
+  path), a LICENSE file, semantic-version git tags, GitHub Releases with
+  changelogs. Prerequisite for any of the below regardless of audience.
+- [ ] **Announcement/discovery strategy.** Leaning narrow-but-qualified
+  over loud-but-generic: a short technical post on the CFG-grounds-LLM
+  thesis, posted to the Jupyter Discourse forum, PyData channels, and the
+  maintainer's existing academic/conference network (ICSE-community
+  standing from the original NBLyzer paper) - rather than a cold
+  Show-HN/Reddit-style mass launch, which trades user quality/signal for
+  raw volume.

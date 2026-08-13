@@ -73,12 +73,25 @@ export function toCodeMirrorDiagnostics(
       }
     }
 
+    const isLLMFinding = error.error_type.startsWith('LLM_');
+    // Deterministic analyses (STALE/IDLE/ISOLATED/DATA_LEAK) all render as
+    // 'warning' today regardless of their own error_type - unchanged here,
+    // out of scope for this pass. Only LLM-sourced findings get a distinct
+    // severity/markClass so they're visually distinguishable as
+    // AI-suggested rather than statically proven.
+    const severity = isLLMFinding
+      ? error.error_type === 'LLM_CRITICAL'
+        ? 'error'
+        : 'warning'
+      : 'warning';
+
     diagnostics.push({
       from,
       to,
-      severity: 'warning',
+      severity,
       message: error.message,
-      source: 'nbsynth'
+      source: 'nbsynth',
+      ...(isLLMFinding ? { markClass: 'cm-nbsynth-llm-finding' } : {})
     });
   }
 

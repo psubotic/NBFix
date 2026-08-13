@@ -12,6 +12,32 @@ const CHANGE_DEBOUNCE_MS = 500;
 const CODE_CELL_KIND = 2;
 
 /**
+ * Merges two diagnostic sets by cell_id, concatenating each cell's errors.
+ * Used to combine the always-on deterministic analyses with the on-demand
+ * LLM findings without either one clobbering the other when re-rendered.
+ */
+function mergeDiagnostics(
+  a: INBSynthDiagnostic[],
+  b: INBSynthDiagnostic[]
+): INBSynthDiagnostic[] {
+  const byCellId = new Map<number, INBSynthDiagnostic['errors']>();
+  for (const source of [a, b]) {
+    for (const cellDiagnostic of source) {
+      const existing = byCellId.get(cellDiagnostic.cell_id) ?? [];
+      byCellId.set(cellDiagnostic.cell_id, [...existing, ...cellDiagnostic.errors]);
+    }
+  }
+  return Array.from(byCellId.entries()).map(([cell_id, errors]) => ({
+    cell_id,
+    errors
+  }));
+}
+
+function countFindings(diagnostics?: INBSynthDiagnostic[]): number {
+  return (diagnostics ?? []).reduce((sum, cellDiagnostic) => sum + cellDiagnostic.errors.length, 0);
+}
+
+/**
  * Wires one NotebookPanel's lifecycle/edit/execute signals to the NBSynth
  * server extension, and renders the diagnostics it returns via the
  * CodeMirror linter registered in linter.ts.
@@ -27,6 +53,8 @@ export class NotebookSessionManager {
   private _notebookId: string;
   private _pendingEdits = new Map<string, number>();
   private _watched = new WeakSet<ICellModel>();
+  private _deterministicDiagnostics: INBSynthDiagnostic[] = [];
+  private _llmDiagnostics: INBSynthDiagnostic[] = [];
 
   constructor(panel: NotebookPanel) {
     this._panel = panel;
@@ -39,13 +67,40 @@ export class NotebookSessionManager {
     const response = await postEvent('open_notebook', this._notebookId, {
       notebook_json: this._cellsAsJSON()
     });
-    this._applyDiagnostics(response.diagnostics);
+    this._setDeterministicDiagnostics(response.diagnostics);
 
     this._panel.content.model?.cells.changed.connect(this._onCellsChanged, this);
     NotebookActions.executed.connect(this._onCellExecuted, this);
     this._panel.disposed.connect(this._onDisposed, this);
 
     this._panel.content.widgets.forEach(cellWidget => this._watchCell(cellWidget));
+  }
+
+  /**
+   * Runs an on-demand LLM bug check over the connected-cell subgraph around
+   * cellIndex (not just that one cell in isolation - cross-cell bugs are
+   * the priority target). Findings are merged with, not replacing, the
+   * live deterministic diagnostics already on screen. Returns the number
+   * of findings - Notification.promise (the caller) requires a
+   * JSON-serializable resolution value, and the count doubles as a useful
+   * success message.
+   */
+  async checkCellForBugs(cellIndex: number): Promise<number> {
+    const response = await postEvent('detect_bugs', this._notebookId, {
+      scope: 'subgraph',
+      cell_index: cellIndex
+    });
+    this._setLLMDiagnostics(response.diagnostics);
+    return countFindings(response.diagnostics);
+  }
+
+  /** Runs an on-demand LLM bug check over the whole notebook. */
+  async checkNotebookForBugs(): Promise<number> {
+    const response = await postEvent('detect_bugs', this._notebookId, {
+      scope: 'full'
+    });
+    this._setLLMDiagnostics(response.diagnostics);
+    return countFindings(response.diagnostics);
   }
 
   private _cellsAsJSON(): Array<{ cell_type: string; source: string }> {
@@ -81,7 +136,13 @@ export class NotebookSessionManager {
         new_code: model.sharedModel.getSource(),
         cell_index: index,
         with_result: true
-      }).then(response => this._applyDiagnostics(response.diagnostics));
+      }).then(response => {
+        // The edited cell's code changed, so any prior LLM finding about
+        // it (or cells connected to it) may no longer apply - drop the
+        // whole LLM set rather than show a possibly-stale AI finding.
+        this._llmDiagnostics = [];
+        this._setDeterministicDiagnostics(response.diagnostics);
+      });
     }, CHANGE_DEBOUNCE_MS);
 
     this._pendingEdits.set(model.id, handle);
@@ -92,20 +153,22 @@ export class NotebookSessionManager {
     change: IObservableList.IChangedArgs<ICellModel>
   ): void {
     if (change.type === 'add') {
+      this._llmDiagnostics = [];
       void postEvent('add_cell', this._notebookId, {
         position: change.newIndex,
         kind: CODE_CELL_KIND,
         content: change.newValues[0]?.sharedModel.getSource() ?? ''
-      }).then(response => this._applyDiagnostics(response.diagnostics));
+      }).then(response => this._setDeterministicDiagnostics(response.diagnostics));
 
       const cellWidget = this._panel.content.widgets[change.newIndex];
       if (cellWidget) {
         this._watchCell(cellWidget);
       }
     } else if (change.type === 'remove') {
+      this._llmDiagnostics = [];
       void postEvent('remove_cell', this._notebookId, {
         position: change.oldIndex
-      }).then(response => this._applyDiagnostics(response.diagnostics));
+      }).then(response => this._setDeterministicDiagnostics(response.diagnostics));
     }
     // 'move'/'set' changes aren't reported as distinct events yet - cell
     // reordering falls back to whatever the next run/edit on the affected
@@ -123,15 +186,30 @@ export class NotebookSessionManager {
     if (index === -1) {
       return;
     }
+    // Running a cell doesn't change its source, so any existing LLM
+    // finding about that code is still valid - only the deterministic set
+    // is refreshed here.
     void postEvent('run_cell', this._notebookId, { cell_index: index }).then(
-      response => this._applyDiagnostics(response.diagnostics)
+      response => this._setDeterministicDiagnostics(response.diagnostics)
     );
   }
 
-  private _applyDiagnostics(diagnostics?: INBSynthDiagnostic[]): void {
-    if (!diagnostics) {
-      return;
+  private _setDeterministicDiagnostics(diagnostics?: INBSynthDiagnostic[]): void {
+    if (diagnostics) {
+      this._deterministicDiagnostics = diagnostics;
     }
+    this._render();
+  }
+
+  private _setLLMDiagnostics(diagnostics?: INBSynthDiagnostic[]): void {
+    if (diagnostics) {
+      this._llmDiagnostics = diagnostics;
+    }
+    this._render();
+  }
+
+  private _render(): void {
+    const merged = mergeDiagnostics(this._deterministicDiagnostics, this._llmDiagnostics);
 
     this._panel.content.widgets.forEach(cellWidget => {
       const view = getEditorView(cellWidget.editor);
@@ -140,7 +218,7 @@ export class NotebookSessionManager {
       }
     });
 
-    for (const cellDiagnostic of diagnostics) {
+    for (const cellDiagnostic of merged) {
       const cellWidget = this._panel.content.widgets[cellDiagnostic.cell_id];
       const view = cellWidget && getEditorView(cellWidget.editor);
       if (view) {

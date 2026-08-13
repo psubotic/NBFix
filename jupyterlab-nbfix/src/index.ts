@@ -41,6 +41,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 
     commands.addCommand(CommandIDs.checkNotebook, {
       label: 'NBFix: Check Notebook for Bugs',
+      iconClass: 'jp-nbfix-icon',
       isEnabled: () => !!tracker.currentWidget,
       execute: () => {
         const panel = tracker.currentWidget;
@@ -58,6 +59,7 @@ const plugin: JupyterFrontEndPlugin<void> = {
 
     commands.addCommand(CommandIDs.checkCell, {
       label: 'NBFix: Check Cell for Bugs',
+      iconClass: 'jp-nbfix-icon',
       isEnabled: () => !!tracker.currentWidget && !!tracker.activeCell,
       execute: () => {
         const panel = tracker.currentWidget;

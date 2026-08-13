@@ -41,6 +41,32 @@ class TestDetectBugsDispatch(unittest.TestCase):
         with self.assertRaises(InvalidEventError):
             build_event("detect_bugs", {"scope": "subgraph"})
 
+    def test_context_mode_defaults_to_deps(self):
+        event = build_event("detect_bugs", {"scope": "full"})
+        self.assertEqual(event.context_mode, "deps")
+
+    def test_context_mode_none_accepted(self):
+        event = build_event("detect_bugs", {"scope": "full", "context_mode": "none"})
+        self.assertEqual(event.context_mode, "none")
+
+    def test_invalid_context_mode_raises(self):
+        with self.assertRaises(InvalidEventError):
+            build_event("detect_bugs", {"scope": "full", "context_mode": "bogus"})
+
+    def test_finding_types_defaults_to_none(self):
+        event = build_event("detect_bugs", {"scope": "full"})
+        self.assertIsNone(event.finding_types)
+
+    def test_finding_types_accepted(self):
+        event = build_event(
+            "detect_bugs", {"scope": "full", "finding_types": ["Idle Cells Analysis"]}
+        )
+        self.assertEqual(event.finding_types, ["Idle Cells Analysis"])
+
+    def test_invalid_finding_types_raises(self):
+        with self.assertRaises(InvalidEventError):
+            build_event("detect_bugs", {"scope": "full", "finding_types": ["Not A Real Analysis"]})
+
 
 if __name__ == "__main__":
     unittest.main()

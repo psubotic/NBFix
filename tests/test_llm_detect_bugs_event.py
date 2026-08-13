@@ -8,6 +8,7 @@ import pytest
 # for why this guard exists.
 pytest.importorskip("openai")
 
+from nbfix.analyses.runner.analysis_results import ErrorInfo, PathResult, Result
 from nbfix.ir.intermediate_representations import IntermediateRepresentations
 from nbfix.llm.client import LLMClientError
 from nbfix.llm.detect_bugs_event import DetectBugsEvent
@@ -24,8 +25,10 @@ EMPTY_FINDINGS = {"findings": []}
 
 
 class FakeNBFix:
-    def __init__(self, notebook_IR):
+    def __init__(self, notebook_IR, results=None, active_analyses=None):
         self.notebook_IR = notebook_IR
+        self.results = results or {}
+        self.active_analyses = active_analyses or []
 
 
 class TestDetectBugsEvent(unittest.TestCase):
@@ -97,6 +100,80 @@ class TestDetectBugsEvent(unittest.TestCase):
 
         with self.assertRaises(LLMClientError):
             event.execute(self.nbfix)
+
+    def test_context_mode_none_omits_dependency_graph(self):
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client, context_mode="none")
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertNotIn("## Dependency graph", user_prompt)
+
+    def test_context_mode_deps_is_default(self):
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client)
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("## Dependency graph", user_prompt)
+
+    def test_invalid_context_mode_raises(self):
+        event = DetectBugsEvent("full", client=MagicMock(), context_mode="bogus")
+        with self.assertRaises(ValueError):
+            event.execute(self.nbfix)
+
+    def test_finding_types_adds_findings_section(self):
+        finding = ErrorInfo(1, 1, "y", "TERMINAL", "idle")
+        results = {"Idle Cells Analysis": Result()}
+        results["Idle Cells Analysis"].add_path_result(PathResult([1], [finding]))
+        nbfix = FakeNBFix(self.notebook_IR, results=results)
+
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client, finding_types={"Idle Cells Analysis"})
+
+        event.execute(nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("## Static analysis findings", user_prompt)
+        self.assertIn("idle", user_prompt)
+
+    def test_no_finding_types_omits_findings_section(self):
+        results = {"Idle Cells Analysis": Result()}
+        results["Idle Cells Analysis"].add_path_result(
+            PathResult([1], [ErrorInfo(1, 1, "y", "TERMINAL", "idle")])
+        )
+        nbfix = FakeNBFix(self.notebook_IR, results=results)
+
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client)
+
+        event.execute(nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertNotIn("## Static analysis findings", user_prompt)
+
+    def test_execute_never_mutates_active_analyses(self):
+        """
+        Regression guard: DetectBugsEvent must never call
+        nbfix.add_analyses()/run_analyses() itself, since add_analyses()
+        fully replaces active_analyses rather than merging - doing that
+        here would silently change what the live JupyterLab editor shows
+        on the next run_cell/change_cell event.
+        """
+        nbfix = FakeNBFix(self.notebook_IR, active_analyses=["Idle Cells Analysis"])
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client, finding_types={"Idle Cells Analysis"})
+
+        event.execute(nbfix)
+
+        self.assertEqual(nbfix.active_analyses, ["Idle Cells Analysis"])
 
 
 if __name__ == "__main__":

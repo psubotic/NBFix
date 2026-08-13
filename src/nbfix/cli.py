@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 
 from .analyzer import NBFix
+from .constants import DATA_LEAK, IDLE, ISOLATED, STALE
 from .events import RunBatchEvent
 from .resource_utils.utils import is_script, read_file, read_json
 
@@ -30,11 +31,15 @@ def nbfix(filename, notebook,  analyses,  start, level=5):
     return results
 
 
-def detect_bugs(filename, notebook, scope, cell_index):
+def detect_bugs(filename, notebook, scope, cell_index, context_mode="deps", finding_types=None):
     """
     Runs LLM-assisted bug detection instead of the -a analyses. Imports
     from .llm are lazy so plain `nbfix -f ... -a ...` invocations never
     depend on the (optional) llm extra being installed.
+
+    If finding_types is given, runs those analyses over the whole notebook
+    first so DetectBugsEvent has fresh results to filter into context - it
+    deliberately never does this itself (see its docstring).
     """
     try:
         from .llm.client import LLMClientError
@@ -45,7 +50,10 @@ def detect_bugs(filename, notebook, scope, cell_index):
         ) from exc
 
     code_nbfix = _load_notebook(filename, notebook)
-    event = DetectBugsEvent(scope, cell_index)
+    if finding_types:
+        code_nbfix.add_analyses(list(finding_types))
+        code_nbfix.run_analyses(-1, list(finding_types))
+    event = DetectBugsEvent(scope, cell_index, context_mode=context_mode, finding_types=finding_types)
     try:
         result = code_nbfix.execute_event(event)
     except LLMClientError as exc:
@@ -75,6 +83,16 @@ def _build_parser() -> ArgumentParser:
         "--cell", type=int, default=None,
         help='Cell index to check. Required when --scope is cell or subgraph.',
     )
+    parser.add_argument(
+        "--context-mode", choices=["none", "deps"], default="deps",
+        help='Context mode for --detect-bugs: "deps" includes the dependency '
+             'graph (default), "none" omits it entirely.',
+    )
+    parser.add_argument(
+        "--finding-types", nargs="+", choices=[DATA_LEAK, STALE, IDLE, ISOLATED], default=None,
+        help='Deterministic analysis names to run and feed the LLM as extra '
+             'context, for --detect-bugs.',
+    )
     return parser
 
 
@@ -86,7 +104,10 @@ def main():
         if args.scope in ("cell", "subgraph") and args.cell is None:
             parser.error(f"--cell is required when --scope {args.scope}")
         try:
-            results = detect_bugs(args.filename, args.notebook, args.scope, args.cell)
+            results = detect_bugs(
+                args.filename, args.notebook, args.scope, args.cell,
+                args.context_mode, args.finding_types,
+            )
         except RuntimeError as exc:
             raise SystemExit(f"Error: {exc}")
         print(results)

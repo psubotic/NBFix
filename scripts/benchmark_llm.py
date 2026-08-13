@@ -2,85 +2,85 @@
 """
 Benchmarking harness comparing LLM bug-detection configs (e.g. a small
 local model vs. a large hosted one, with vs. without NBFix's structural
-context) over a directory of eval notebooks.
+context) over the llm_bench fixture set (tests/resources/llm_bench/ -
+see that directory's README.md for the bug-class taxonomy and ground-truth
+methodology).
 
 Not part of the installed nbfix package - a dev-only research tool.
 Requires `pip install -e ".[dev,llm]"` first.
 
-Each notebook in --eval-dir may have an optional
+Thin consumer of nbfix.llm's product code (context_builder.py's
+context_mode/finding_types, DetectBugsEvent) rather than a separate,
+hand-copied ablation implementation - so what this benchmarks is exactly
+what the CLI/server extension actually run, not a parallel approximation
+of it.
+
+--eval-dir is expected to be organized one level deep by bug class
+(<eval-dir>/<bug_class>/<name>.ipynb), matching tests/resources/llm_bench/'s
+layout. Each notebook may have an optional
 "<notebook>.ipynb.expected.json" sidecar (same {cell_id, path, errors}
-shape as tests/rtests.py's .out files) to enable precision/recall scoring;
-without one, results are still recorded for manual review, just unscored.
+shape as tests/rtests.py's .out files) to enable precision/recall/F1
+scoring; without one, results are still recorded for manual review, just
+unscored. llm_bench's clean fixtures ship an explicit empty `[]` sidecar
+rather than no file, so a hallucinated finding on a clean notebook counts
+as a false positive instead of being silently unscored.
 
 Usage:
     python scripts/benchmark_llm.py \\
-        --eval-dir path/to/notebooks \\
+        --eval-dir tests/resources/llm_bench \\
         --config small=qwen2.5-coder:14b@http://localhost:11434/v1 \\
         --config large=gpt-4o@https://api.openai.com/v1 \\
-        --scope full \\
-        --ablation \\
+        --context-configs none deps \\
         --output results/
 """
 import argparse
+import csv
 import dataclasses
 import json
 import os
 import time
 from dataclasses import dataclass
 
-from nbfix.analyses.runner.analysis_results import Result
+from nbfix.analyzer import NBFix
+from nbfix.constants import DATA_LEAK, IDLE, ISOLATED, STALE
 from nbfix.llm.client import LLMClient, LLMClientError
-from nbfix.llm.context_builder import build_cell_context, build_subgraph_context, build_full_notebook_context
-from nbfix.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from nbfix.llm.detect_bugs_event import DetectBugsEvent
 from nbfix.llm.notebook_loading import load_notebook_resilient
-from nbfix.llm.result_mapping import map_findings_to_result
 from nbfix.resource_utils.utils import read_json
 
-_SCOPED_CONTEXT_BUILDERS = {
-    "cell": build_cell_context,
-    "subgraph": build_subgraph_context,
+# Named presets rather than a raw context_mode x finding_types cross-product
+# - the benchmark's job is a small number of clean comparisons, not
+# exhaustive coverage. "deps+findings" is included in the mapping for
+# completeness/future use, but note: it's a no-op against llm_bench's
+# fixtures specifically, since those are deliberately chosen to never
+# trigger the four deterministic analyses (see llm_bench/README.md) - it
+# only becomes meaningful once a fixture set where those analyses actually
+# fire exists.
+_CONTEXT_CONFIGS = {
+    "none": {"context_mode": "none", "finding_types": None},
+    "deps": {"context_mode": "deps", "finding_types": None},
+    "deps+findings": {"context_mode": "deps", "finding_types": {DATA_LEAK, STALE, IDLE, ISOLATED}},
 }
 
-# Same task/output-contract as prompts.SYSTEM_PROMPT, minus the dependency
-# graph section - the ablation baseline for "does NBFix's structural
-# context actually help". Deliberately kept local to this script rather
-# than added to nbfix.llm.prompts: it isn't a real product mode, only a
-# research comparison.
-NO_CONTEXT_SYSTEM_PROMPT = """You are reviewing Python code from Jupyter notebook cells for bugs.
 
-Identify concrete bugs: logic errors, incorrect variable usage, misuse of
-functions/libraries, or bugs that only manifest from how cells interact
-with each other. Do not report style preferences, missing docstrings, or
-purely stylistic issues.
+class _UsageCapturingClient:
+    """
+    Wraps a real LLMClient so DetectBugsEvent's call to `chat_json` (its
+    only production interface) also records token usage, without
+    DetectBugsEvent itself needing to know about `chat_json_with_usage` -
+    that method exists on LLMClient specifically for this benchmarking
+    need, per its own docstring. Keeps DetectBugsEvent's actual code path
+    exercised rather than duplicating prompt-building here.
+    """
 
-Respond with a single JSON object of exactly this shape and nothing else:
+    def __init__(self, inner: LLMClient):
+        self._inner = inner
+        self.last_usage = None
 
-{
-  "findings": [
-    {
-      "cell_ids": [<int>, ...],
-      "line": <int>,
-      "label": "<the specific identifier/token the bug concerns, or \\"\\" if none applies>",
-      "severity": "critical" | "warning",
-      "message": "<concise explanation of the bug>"
-    }
-  ]
-}
-
-"cell_ids" lists every cell involved in the bug, ordered so the LAST entry
-is the cell the bug should be anchored/displayed on. "line" is a 1-indexed
-line number within that anchor cell. If you find no bugs, respond with
-{"findings": []}.
-"""
-
-
-def build_no_context_user_prompt(notebook_IR) -> str:
-    sections = ["## Notebook cells"]
-    for cell_id in sorted(notebook_IR):
-        sections.append(f"### Cell {cell_id}\n```python\n{notebook_IR[cell_id].cell_code}\n```")
-    cell_list = ", ".join(f"Cell {cid}" for cid in sorted(notebook_IR))
-    sections.append(f"## Cells to check\nFocus your review on: {cell_list}")
-    return "\n\n".join(sections)
+    def chat_json(self, system_prompt: str, user_prompt: str) -> dict:
+        findings, usage = self._inner.chat_json_with_usage(system_prompt, user_prompt)
+        self.last_usage = usage
+        return findings
 
 
 def score_findings(
@@ -146,8 +146,9 @@ def parse_config(spec: str) -> ModelConfig:
 @dataclass
 class RunResult:
     notebook: str
+    bug_class: str
     config: str
-    context_mode: str  # "with_context" | "no_context"
+    context_config: str
     wall_clock_s: float
     tokens: dict
     finding_count: int
@@ -156,52 +157,62 @@ class RunResult:
     error: str = None
 
 
-def _build_prompts(notebook_IR, scope: str, with_context: bool) -> tuple[str, list[str]]:
-    if not with_context:
-        return NO_CONTEXT_SYSTEM_PROMPT, [build_no_context_user_prompt(notebook_IR)]
+def _load_nbfix(notebook_json: dict, level: int = 5) -> NBFix:
+    """
+    Builds a real NBFix and loads the notebook via the real fail-fast core
+    path first - what production (CLI/server/JupyterLab) actually runs,
+    and what llm_bench's fixtures are verified to load through cleanly.
+    Falls back to the LLM-only resilient loader (which skips individual
+    unparseable cells rather than aborting) only if a fixture actually
+    needs a construct the parser doesn't support yet - checked per
+    fixture, not assumed.
+    """
+    nbfix = NBFix(level=level)
+    try:
+        nbfix.load_notebook(notebook_json["cells"])
+    except Exception:
+        nbfix.notebook_IR = load_notebook_resilient(notebook_json["cells"])
+    return nbfix
 
-    if scope == "full":
-        return SYSTEM_PROMPT, [build_user_prompt(build_full_notebook_context(notebook_IR))]
 
-    builder_fn = _SCOPED_CONTEXT_BUILDERS[scope]
-    # cell/subgraph scope is inherently per-cell in real usage (JupyterLab's
-    # "check cell for bugs" / CLI --cell) - faithfully benchmarking it means
-    # running it once per cell and merging results, not one whole-notebook call.
-    prompts = [build_user_prompt(builder_fn(notebook_IR, cell_id)) for cell_id in sorted(notebook_IR)]
-    return SYSTEM_PROMPT, prompts
+def run_once(
+    notebook_name: str, bug_class: str, nbfix: NBFix, config: ModelConfig,
+    context_config_name: str, expected,
+) -> RunResult:
+    context_config = _CONTEXT_CONFIGS[context_config_name]
+    finding_types = context_config["finding_types"]
 
+    if finding_types:
+        # DetectBugsEvent deliberately never runs analyses itself (see its
+        # docstring) - the caller populates nbfix.results first.
+        nbfix.add_analyses(list(finding_types))
+        nbfix.run_analyses(-1, list(finding_types))
 
-def run_once(notebook_name, notebook_IR, config: ModelConfig, scope: str, with_context: bool, expected) -> RunResult:
-    context_mode = "with_context" if with_context else "no_context"
-    client = LLMClient(
+    inner_client = LLMClient(
         base_url=config.base_url,
         model=config.model,
         api_key=os.environ.get("OPENAI_API_KEY", "not-needed"),
     )
-    system_prompt, user_prompts = _build_prompts(notebook_IR, scope, with_context)
+    client = _UsageCapturingClient(inner_client)
+    event = DetectBugsEvent(
+        "full", client=client,
+        context_mode=context_config["context_mode"], finding_types=finding_types,
+    )
 
-    total_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    combined_result = Result()
     start = time.monotonic()
-
     try:
-        for user_prompt in user_prompts:
-            findings_json, usage = client.chat_json_with_usage(system_prompt, user_prompt)
-            for key in total_usage:
-                if usage.get(key) is not None:
-                    total_usage[key] += usage[key]
-            combined_result.join_results(map_findings_to_result(findings_json, notebook_IR))
+        result = nbfix.execute_event(event)
     except LLMClientError as exc:
         return RunResult(
-            notebook=notebook_name, config=config.name, context_mode=context_mode,
-            wall_clock_s=time.monotonic() - start, tokens=total_usage,
-            finding_count=0, raw_findings=[], score=None, error=str(exc),
+            notebook=notebook_name, bug_class=bug_class, config=config.name,
+            context_config=context_config_name, wall_clock_s=time.monotonic() - start,
+            tokens={}, finding_count=0, raw_findings=[], score=None, error=str(exc),
         )
 
     elapsed = time.monotonic() - start
     actual_pairs = [
         (path_result.path[-1], error_info.line)
-        for path_result in combined_result.path_results
+        for path_result in result.path_results
         for error_info in path_result.error_infos
     ]
 
@@ -212,60 +223,132 @@ def run_once(notebook_name, notebook_IR, config: ModelConfig, scope: str, with_c
         ]
         score = score_findings(actual_pairs, expected_pairs)
 
-    raw_findings = json.loads(combined_result.dumps(True)) if combined_result.path_results else []
+    raw_findings = json.loads(result.dumps(True)) if result.path_results else []
 
     return RunResult(
-        notebook=notebook_name, config=config.name, context_mode=context_mode,
-        wall_clock_s=elapsed, tokens=total_usage,
-        finding_count=len(actual_pairs), raw_findings=raw_findings, score=score, error=None,
+        notebook=notebook_name, bug_class=bug_class, config=config.name,
+        context_config=context_config_name, wall_clock_s=elapsed,
+        tokens=client.last_usage or {}, finding_count=len(actual_pairs),
+        raw_findings=raw_findings, score=score, error=None,
     )
 
 
 def _discover_eval_notebooks(eval_dir: str):
-    for name in sorted(os.listdir(eval_dir)):
-        if name.endswith(".ipynb"):
-            yield name
+    """Yields (bug_class, notebook_filename) - one level deep,
+    <eval_dir>/<bug_class>/<name>.ipynb, matching llm_bench/'s layout."""
+    for bug_class in sorted(os.listdir(eval_dir)):
+        class_dir = os.path.join(eval_dir, bug_class)
+        if not os.path.isdir(class_dir):
+            continue
+        for name in sorted(os.listdir(class_dir)):
+            if name.endswith(".ipynb"):
+                yield bug_class, name
 
 
-def _load_expected(eval_dir: str, notebook_name: str):
-    path = os.path.join(eval_dir, notebook_name + ".expected.json")
+def _load_expected(eval_dir: str, bug_class: str, notebook_name: str):
+    path = os.path.join(eval_dir, bug_class, notebook_name + ".expected.json")
     if not os.path.exists(path):
         return None
     with open(path) as f:
         return json.load(f)
 
 
+_CSV_FIELDS = [
+    "notebook", "bug_class", "config", "context_config", "wall_clock_s",
+    "prompt_tokens", "completion_tokens", "total_tokens", "finding_count",
+    "true_positives", "false_positives", "false_negatives",
+    "precision", "recall", "f1", "error",
+]
+
+
+def _write_csv(results: list, csv_path: str) -> None:
+    """
+    Flat, one-row-per-run CSV alongside results.jsonl - so charts (or any
+    other analysis) can be regenerated later from saved data without
+    rerunning the actual LLM calls. jsonl stays the full-fidelity format
+    (keeps raw_findings, nested tokens/score dicts); this is a deliberately
+    flattened, spreadsheet/pandas-friendly view of the same runs.
+    """
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_CSV_FIELDS)
+        writer.writeheader()
+        for r in results:
+            score = r.score or {}
+            writer.writerow({
+                "notebook": r.notebook,
+                "bug_class": r.bug_class,
+                "config": r.config,
+                "context_config": r.context_config,
+                "wall_clock_s": r.wall_clock_s,
+                "prompt_tokens": r.tokens.get("prompt_tokens"),
+                "completion_tokens": r.tokens.get("completion_tokens"),
+                "total_tokens": r.tokens.get("total_tokens"),
+                "finding_count": r.finding_count,
+                "true_positives": score.get("true_positives"),
+                "false_positives": score.get("false_positives"),
+                "false_negatives": score.get("false_negatives"),
+                "precision": score.get("precision"),
+                "recall": score.get("recall"),
+                "f1": score.get("f1"),
+                "error": r.error,
+            })
+
+
 def _print_summary(results: list) -> None:
     groups: dict = {}
     for r in results:
-        groups.setdefault((r.config, r.context_mode), []).append(r)
+        groups.setdefault((r.config, r.bug_class, r.context_config), []).append(r)
 
     print("\n=== Summary ===")
-    print(f"{'config':<15}{'context':<14}{'runs':<6}{'avg_latency_s':<15}{'avg_tokens':<12}{'avg_precision':<15}{'avg_recall':<12}")
-    for (config_name, context_mode), rs in groups.items():
+    print(
+        f"{'config':<10}{'bug_class':<22}{'context':<16}{'runs':<6}"
+        f"{'avg_lat_s':<11}{'avg_tokens':<12}{'avg_prec':<10}{'avg_rec':<10}{'avg_f1':<8}"
+    )
+    for (config_name, bug_class, context_config), rs in sorted(groups.items()):
         ok = [r for r in rs if r.error is None]
         avg_latency = sum(r.wall_clock_s for r in ok) / len(ok) if ok else 0.0
         avg_tokens = sum(r.tokens.get("total_tokens") or 0 for r in ok) / len(ok) if ok else 0.0
         scored = [r for r in ok if r.score is not None]
         avg_precision = sum(r.score["precision"] for r in scored) / len(scored) if scored else float("nan")
         avg_recall = sum(r.score["recall"] for r in scored) / len(scored) if scored else float("nan")
+        avg_f1 = sum(r.score["f1"] for r in scored) / len(scored) if scored else float("nan")
         print(
-            f"{config_name:<15}{context_mode:<14}{len(rs):<6}{avg_latency:<15.2f}"
-            f"{avg_tokens:<12.1f}{avg_precision:<15.2f}{avg_recall:<12.2f}"
+            f"{config_name:<10}{bug_class:<22}{context_config:<16}{len(rs):<6}"
+            f"{avg_latency:<11.2f}{avg_tokens:<12.1f}{avg_precision:<10.2f}"
+            f"{avg_recall:<10.2f}{avg_f1:<8.2f}"
         )
+
+
+def _warm_up(config: ModelConfig) -> None:
+    """
+    Ollama evicts/reloads a model when a different one is requested -
+    without this, the first real timed call to a model pays a cold-load
+    cost that has nothing to do with context size. Found via the first
+    llm_bench run: "none" was consistently much slower than "deps" for
+    every model/class, purely because the loop called it first for that
+    model each time. One throwaway call before timing starts absorbs that
+    cost instead of letting it land on whichever context config runs first.
+    """
+    client = LLMClient(
+        base_url=config.base_url, model=config.model,
+        api_key=os.environ.get("OPENAI_API_KEY", "not-needed"),
+    )
+    try:
+        client.chat_json("You are a helpful assistant.", 'Reply with {"ok": true} and nothing else.')
+    except LLMClientError:
+        pass  # if the model's genuinely unreachable, the real calls below will fail too and report it
 
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark LLM bug-detection configs.")
-    parser.add_argument("--eval-dir", required=True, help="Directory of .ipynb eval notebooks.")
+    parser.add_argument("--eval-dir", required=True, help="Directory of <bug_class>/<name>.ipynb notebooks.")
     parser.add_argument(
         "--config", action="append", required=True, dest="configs",
         help="NAME=MODEL@BASE_URL, repeatable.",
     )
-    parser.add_argument("--scope", choices=["cell", "subgraph", "full"], default="full")
     parser.add_argument(
-        "--ablation", action="store_true",
-        help="Also run a no-context baseline per config, for comparison.",
+        "--context-configs", nargs="+", choices=list(_CONTEXT_CONFIGS), default=["deps"],
+        help="Named context configs to run each notebook/config through.",
     )
     parser.add_argument("--output", default="benchmark_results", help="Output directory.")
     args = parser.parse_args()
@@ -274,35 +357,48 @@ def main():
     os.makedirs(args.output, exist_ok=True)
     results_path = os.path.join(args.output, "results.jsonl")
 
+    notebooks = []
+    for bug_class, notebook_name in _discover_eval_notebooks(args.eval_dir):
+        notebook_path = os.path.join(args.eval_dir, bug_class, notebook_name)
+        try:
+            notebook_json = read_json(notebook_path)
+        except Exception as exc:
+            print(f"Skipping {bug_class}/{notebook_name}: failed to read ({exc})")
+            continue
+        expected = _load_expected(args.eval_dir, bug_class, notebook_name)
+        notebooks.append((bug_class, notebook_name, notebook_json, expected))
+
     all_results = []
     with open(results_path, "w") as out_f:
-        for notebook_name in _discover_eval_notebooks(args.eval_dir):
-            try:
-                notebook_json = read_json(os.path.join(args.eval_dir, notebook_name))
-                # Cells the parser can't handle yet (see ast_transformer.py)
-                # are skipped individually here, not the whole notebook -
-                # this still guards against the file itself being
-                # unreadable/corrupt JSON, a different failure than "one
-                # cell uses an unsupported construct".
-                notebook_IR = load_notebook_resilient(notebook_json["cells"])
-            except Exception as exc:
-                print(f"Skipping {notebook_name}: failed to load ({exc})")
-                continue
-            expected = _load_expected(args.eval_dir, notebook_name)
+        # One full pass per model (not per notebook) - keeps each model
+        # warm across all its runs instead of swap-thrashing between 3
+        # different models every notebook, which is what produced the
+        # cold-load latency confound in the first run.
+        for config in configs:
+            print(f"Warming up {config.name} ({config.model})...")
+            _warm_up(config)
 
-            for config in configs:
-                for with_context in ([True, False] if args.ablation else [True]):
-                    mode = "with_context" if with_context else "no_context"
-                    print(f"Running {notebook_name} / {config.name} / {mode}...")
-                    result = run_once(notebook_name, notebook_IR, config, args.scope, with_context, expected)
+            for bug_class, notebook_name, notebook_json, expected in notebooks:
+                for context_config_name in args.context_configs:
+                    print(f"Running {bug_class}/{notebook_name} / {config.name} / {context_config_name}...")
+                    # Fresh NBFix per run - finding_types mutates
+                    # active_analyses/results, and reloading is cheap for
+                    # these small fixtures, so there's no reason to risk
+                    # state leaking across context configs.
+                    nbfix = _load_nbfix(notebook_json)
+                    result = run_once(notebook_name, bug_class, nbfix, config, context_config_name, expected)
                     if result.error:
                         print(f"  error: {result.error}")
                     all_results.append(result)
                     out_f.write(json.dumps(dataclasses.asdict(result)) + "\n")
                     out_f.flush()
 
+    csv_path = os.path.join(args.output, "results.csv")
+    _write_csv(all_results, csv_path)
+
     _print_summary(all_results)
     print(f"\nFull results written to {results_path}")
+    print(f"Flat CSV written to {csv_path}")
 
 
 if __name__ == "__main__":

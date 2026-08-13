@@ -1,3 +1,4 @@
+from ..constants import DATA_LEAK, IDLE, ISOLATED, STALE
 from ..events import (
     AddActiveAnalysesEvent,
     AddCellEvent,
@@ -8,6 +9,8 @@ from ..events import (
     RunBatchEvent,
     RunCellEvent,
 )
+
+_VALID_FINDING_TYPES = {DATA_LEAK, STALE, IDLE, ISOLATED}
 
 
 class InvalidEventError(ValueError):
@@ -35,7 +38,17 @@ def _build_detect_bugs_event(params):
     if scope != "full" and cell_index is None:
         raise InvalidEventError(f"cell_index is required for scope={scope!r}")
 
-    return DetectBugsEvent(scope, cell_index)
+    context_mode = params.get("context_mode", "deps")
+    if context_mode not in ("none", "deps"):
+        raise InvalidEventError(f"Invalid context_mode: {context_mode!r}")
+
+    finding_types = params.get("finding_types")
+    if finding_types is not None:
+        invalid = set(finding_types) - _VALID_FINDING_TYPES
+        if invalid:
+            raise InvalidEventError(f"Invalid finding_types: {sorted(invalid)}")
+
+    return DetectBugsEvent(scope, cell_index, context_mode=context_mode, finding_types=finding_types)
 
 
 _EVENT_BUILDERS = {

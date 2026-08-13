@@ -2,9 +2,11 @@ from .context_builder import BugDetectionContext
 
 SYSTEM_PROMPT = """You are reviewing Python code from Jupyter notebook cells for bugs.
 
-You will be given the source code of one or more cells, and a dependency
-graph showing which cells define variables that other cells read (derived
-from static analysis, not your own inference - trust it as ground truth).
+You will be given the source code of one or more cells. You may also be
+given a dependency graph showing which cells define variables that other
+cells read, and/or findings from NBFix's own deterministic analyses -
+both derived from static analysis, not your own inference, so trust them
+as ground truth where present.
 
 Identify concrete bugs: logic errors, incorrect variable usage, misuse of
 functions/libraries, or bugs that only manifest from how cells interact
@@ -33,22 +35,30 @@ within that anchor cell. If you find no bugs, respond with {"findings": []}.
 """
 
 
-def build_user_prompt(context: BugDetectionContext) -> str:
+def build_user_prompt(context: BugDetectionContext, include_dependency_graph: bool = True) -> str:
     sections = ["## Notebook cells"]
     for cell in context.cells:
         sections.append(f"### Cell {cell.cell_id}\n```python\n{cell.code}\n```")
 
-    dependency_lines = []
-    for cell_id in sorted(context.dependency_edges):
-        deps = sorted(context.dependency_edges[cell_id])
-        if deps:
-            dep_list = ", ".join(f"Cell {d}" for d in deps)
-            dependency_lines.append(f"- Cell {cell_id} depends on: {dep_list}")
+    if include_dependency_graph:
+        dependency_lines = []
+        for cell_id in sorted(context.dependency_edges):
+            deps = sorted(context.dependency_edges[cell_id])
+            if deps:
+                dep_list = ", ".join(f"Cell {d}" for d in deps)
+                dependency_lines.append(f"- Cell {cell_id} depends on: {dep_list}")
 
-    sections.append(
-        "## Dependency graph\n"
-        + ("\n".join(dependency_lines) if dependency_lines else "(no cross-cell dependencies detected)")
-    )
+        sections.append(
+            "## Dependency graph\n"
+            + ("\n".join(dependency_lines) if dependency_lines else "(no cross-cell dependencies detected)")
+        )
+
+    if context.deterministic_findings:
+        finding_lines = [
+            f"- Cell {f.cell_id}, line {f.line}: [{f.error_type}] {f.error_message}"
+            for f in context.deterministic_findings
+        ]
+        sections.append("## Static analysis findings\n" + "\n".join(finding_lines))
 
     target_list = ", ".join(f"Cell {cid}" for cid in context.target_cell_ids)
     sections.append(f"## Cells to check\nFocus your review on: {target_list}")

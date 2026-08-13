@@ -1,11 +1,13 @@
 import unittest
 
+from nbfix.analyses.runner.analysis_results import ErrorInfo, PathResult, Result
 from nbfix.ir.intermediate_representations import IntermediateRepresentations
 from nbfix.llm.context_builder import (
     build_cell_context,
     build_dependency_edges,
     build_full_notebook_context,
     build_subgraph_context,
+    collect_deterministic_findings,
 )
 
 
@@ -84,6 +86,57 @@ class TestBuildFullNotebookContext(unittest.TestCase):
         self.assertEqual({c.cell_id for c in ctx.cells}, {0, 1, 2})
         self.assertEqual(ctx.target_cell_ids, [0, 1, 2])
         self.assertEqual(ctx.dependency_edges, {0: set(), 1: {0}, 2: set()})
+
+
+class TestCollectDeterministicFindings(unittest.TestCase):
+    def test_flattens_requested_analysis_types(self):
+        finding = ErrorInfo(1, 1, "x", "TERMINAL", "idle")
+        results = {"Idle Cells Analysis": Result()}
+        results["Idle Cells Analysis"].add_path_result(PathResult([1], [finding]))
+
+        found = collect_deterministic_findings(results, {"Idle Cells Analysis"})
+        self.assertEqual(found, [finding])
+
+    def test_ignores_analysis_types_not_requested(self):
+        finding = ErrorInfo(1, 1, "x", "TERMINAL", "idle")
+        results = {"Idle Cells Analysis": Result()}
+        results["Idle Cells Analysis"].add_path_result(PathResult([1], [finding]))
+
+        found = collect_deterministic_findings(results, {"Stale Cells Analysis"})
+        self.assertEqual(found, [])
+
+    def test_missing_analysis_in_results_is_skipped_not_an_error(self):
+        found = collect_deterministic_findings({}, {"Idle Cells Analysis"})
+        self.assertEqual(found, [])
+
+    def test_no_finding_types_returns_empty(self):
+        results = {"Idle Cells Analysis": Result()}
+        self.assertEqual(collect_deterministic_findings(results, None), [])
+
+
+class TestDeterministicFindingsScoping(unittest.TestCase):
+    def setUp(self):
+        self.notebook_IR = make_notebook({0: "x = 1", 1: "y = x + 1", 2: "z = 99"})
+        self.finding_0 = ErrorInfo(0, 1, "x", "TERMINAL", "idle at 0")
+        self.finding_2 = ErrorInfo(2, 1, "z", "TERMINAL", "idle at 2")
+        self.all_findings = [self.finding_0, self.finding_2]
+
+    def test_cell_context_filters_to_target_cell_only(self):
+        ctx = build_cell_context(self.notebook_IR, 0, deterministic_findings=self.all_findings)
+        self.assertEqual(ctx.deterministic_findings, [self.finding_0])
+
+    def test_subgraph_context_filters_to_component(self):
+        # cell 2 is unrelated to cells 0/1's component.
+        ctx = build_subgraph_context(self.notebook_IR, 1, deterministic_findings=self.all_findings)
+        self.assertEqual(ctx.deterministic_findings, [self.finding_0])
+
+    def test_full_notebook_context_includes_all(self):
+        ctx = build_full_notebook_context(self.notebook_IR, deterministic_findings=self.all_findings)
+        self.assertEqual(ctx.deterministic_findings, self.all_findings)
+
+    def test_default_is_empty_list_not_none(self):
+        ctx = build_cell_context(self.notebook_IR, 0)
+        self.assertEqual(ctx.deterministic_findings, [])
 
 
 if __name__ == "__main__":

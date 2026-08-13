@@ -34,6 +34,25 @@ and `cli.py`) - `nbfix[llm]` is opt-in throughout.
 
 ## Backlog (next up, in this order)
 
+- [ ] **Configurable LLM context (do this first, as soon as manual
+  testing shows the current always-on setup is stable).** Two distinct
+  gaps, not one:
+  1. Today the four deterministic analyses' findings (STALE/IDLE/
+     ISOLATED/DATA_LEAK) never reach the LLM prompt at all -
+     `context_builder.py`/`prompts.py` only send cell code and the raw
+     dependency graph (from this package's own def-use walk, not
+     `analyses/`'s `Result` objects). Wiring those findings into
+     `BugDetectionContext`/`build_user_prompt` is a prerequisite for any
+     per-analysis toggle.
+  2. Once that exists, add a `context_mode`-style param to the
+     `detect_bugs` event (same pattern as the existing `scope` param):
+     `none` (code only - generalizes `benchmark_llm.py`'s `--ablation`
+     flag from a benchmark-only knob into something usable live),
+     `deps` (today's default), and a `set[str]` allowlist of which
+     analysis finding types to include once (1) is done. Thread through
+     `DetectBugsEvent` -> `serverextension/dispatch.py` -> CLI flag ->
+     JupyterLab command palette (likely a settings/menu addition, not
+     just the existing two commands).
 - [ ] **Repair.** Already designed, not yet built: a `RepairCellEvent`
   sibling to `DetectBugsEvent`, reusing the same context-builder/client
   infrastructure, asking the model for a code patch rather than (or in

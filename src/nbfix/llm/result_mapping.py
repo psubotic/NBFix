@@ -8,6 +8,21 @@ logger = logging.getLogger(__name__)
 
 _VALID_SEVERITIES = {"critical", "warning"}
 
+# How far past a cell's actual line count a reported line is still accepted,
+# rather than dropped as a hallucination. Found via the first llm_bench
+# benchmark run: on small (1-3 line) cells, models frequently identify the
+# *correct cell* but overshoot the line by 1-2 (e.g. "line 3" in a 1-line
+# cell) - a precision miss, not a sign the finding is fabricated. A hard
+# cutoff at exactly line_count was silently discarding these before they
+# ever reached scripts/benchmark_llm.py's own scoring, which already
+# tolerates a 2-line miss for the same reason. Matching that tolerance here
+# keeps the two consistent instead of the benchmark being more lenient than
+# what it's actually scoring. Safe for the live JupyterLab path too - the
+# frontend already clamps an out-of-range line to the last real line
+# (linter.ts's toCodeMirrorDiagnostics), so a finding anchored a couple
+# lines past the end degrades gracefully rather than rendering incorrectly.
+_LINE_OVERSHOOT_SLACK = 2
+
 
 def map_findings_to_result(findings_json: dict, notebook_IR) -> Result:
     """
@@ -59,7 +74,7 @@ def _build_error_info(finding, notebook_IR) -> ErrorInfo | None:
     line = finding.get("line")
     anchor_code = notebook_IR[anchor_cell_id].cell_code
     line_count = len(anchor_code.splitlines()) or 1
-    if not isinstance(line, int) or isinstance(line, bool) or not (1 <= line <= line_count):
+    if not isinstance(line, int) or isinstance(line, bool) or not (1 <= line <= line_count + _LINE_OVERSHOOT_SLACK):
         logger.warning("Skipping finding with out-of-range line: %r", finding)
         return None
 

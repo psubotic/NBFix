@@ -5,4 +5,4 @@ export const IDLE = "Idle Cells Analysis";
 export const ISOLATED = "Isolated Cells Analysis";
 export const SAFE_PATH = "Safe Path Analysis";
 
-export const SERVER_PATH = "\\nbsynth\\src\\server.py"
+export const SERVER_PATH = "\\nbfix\\src\\server.py"

@@ -1,6 +1,6 @@
 import unittest
-from nbsynth.analyses.isolated_cell_analysis import IsolatedCellAnalysis
-from nbsynth.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
+from nbfix.analyses.isolated_cell_analysis import IsolatedCellAnalysis
+from nbfix.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
 import json
 
 

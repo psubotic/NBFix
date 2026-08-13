@@ -1,8 +1,8 @@
 import json
 import unittest
 
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.llm.result_mapping import map_findings_to_result
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.llm.result_mapping import map_findings_to_result
 
 
 def make_notebook(cells: dict[int, str]) -> dict:

@@ -34,7 +34,7 @@ export class ServerHandler {
                     reject("Server isn't running.");
                 }
                 else {
-                    vscode.window.showErrorMessage("NBSynth server stopped unexpectedly. Please close all notebooks and start NBSynth again.")
+                    vscode.window.showErrorMessage("NBFix server stopped unexpectedly. Please close all notebooks and start NBFix again.")
                 }
             });
             client.on('data', (data) => {

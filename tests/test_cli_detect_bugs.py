@@ -5,8 +5,8 @@ import pytest
 
 pytest.importorskip("openai")
 
-from nbsynth.cli import _build_parser, detect_bugs, main
-from nbsynth.resource_utils.utils import TEST_RES_PATH
+from nbfix.cli import _build_parser, detect_bugs, main
+from nbfix.resource_utils.utils import TEST_RES_PATH
 
 
 def _mock_openai_response(content: str):
@@ -26,7 +26,7 @@ class TestArgParsing(unittest.TestCase):
         # main()'s post-parse validation is what actually rejects this.
         with patch(
             "sys.argv",
-            ["nbsynth", "--detect-bugs", "--scope", "cell", "-f", "notebook.ipynb"],
+            ["nbfix", "--detect-bugs", "--scope", "cell", "-f", "notebook.ipynb"],
         ):
             with self.assertRaises(SystemExit):
                 main()
@@ -39,7 +39,7 @@ class TestArgParsing(unittest.TestCase):
 
 
 class TestDetectBugsFunction(unittest.TestCase):
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_detect_bugs_returns_dumps_output(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -50,7 +50,7 @@ class TestDetectBugsFunction(unittest.TestCase):
 
         self.assertEqual(result, "")  # Result.dumps() for zero findings
 
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_main_end_to_end_prints_result(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -58,7 +58,7 @@ class TestDetectBugsFunction(unittest.TestCase):
         )
 
         argv = [
-            "nbsynth",
+            "nbfix",
             "--detect-bugs",
             "--scope",
             "full",

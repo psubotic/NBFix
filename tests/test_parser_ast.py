@@ -1,9 +1,9 @@
 import unittest
 
-from nbsynth.parser import ast_nodes as n
-from nbsynth.parser.ast_transformer import build_ast
-from nbsynth.parser.lark_parser import parse_to_tree
-from nbsynth.resource_utils.utils import TEST_RES_PATH, load_notebook, read_json
+from nbfix.parser import ast_nodes as n
+from nbfix.parser.ast_transformer import build_ast
+from nbfix.parser.lark_parser import parse_to_tree
+from nbfix.resource_utils.utils import TEST_RES_PATH, load_notebook, read_json
 
 
 def parse(src):

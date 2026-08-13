@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# ---- build stage: has Python + Node, builds nbsynth + the JupyterLab labextension into a venv ----
+# ---- build stage: has Python + Node, builds nbfix + the JupyterLab labextension into a venv ----
 FROM python:3.11-slim AS build
 
-# Node.js is only needed here to build jupyterlab-nbsynth's TypeScript
+# Node.js is only needed here to build jupyterlab-nbfix's TypeScript
 # source into static assets - it never ends up in the runtime image below.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
@@ -18,21 +18,21 @@ WORKDIR /src
 COPY pyproject.toml README.md ./
 COPY src ./src
 COPY jupyter-config ./jupyter-config
-COPY jupyterlab-nbsynth ./jupyterlab-nbsynth
+COPY jupyterlab-nbfix ./jupyterlab-nbfix
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir ".[jupyter]" "jupyterlab>=4,<5" \
-    && pip install --no-cache-dir ./jupyterlab-nbsynth
+    && pip install --no-cache-dir ./jupyterlab-nbfix
 
 # ---- runtime stage: slim, no Node/npm/node_modules/build toolchain ----
 FROM python:3.11-slim AS runtime
 
-RUN useradd --create-home --shell /bin/bash nbsynth
+RUN useradd --create-home --shell /bin/bash nbfix
 COPY --from=build /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-USER nbsynth
-WORKDIR /home/nbsynth/work
+USER nbfix
+WORKDIR /home/nbfix/work
 EXPOSE 8888
 
 # No token/password is baked in here on purpose - JupyterLab generates a

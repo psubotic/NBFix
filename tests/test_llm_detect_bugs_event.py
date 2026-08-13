@@ -8,9 +8,9 @@ import pytest
 # for why this guard exists.
 pytest.importorskip("openai")
 
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.llm.client import LLMClientError
-from nbsynth.llm.detect_bugs_event import DetectBugsEvent
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.llm.client import LLMClientError
+from nbfix.llm.detect_bugs_event import DetectBugsEvent
 
 
 def make_notebook(cells: dict[int, str]) -> dict:
@@ -23,7 +23,7 @@ def make_notebook(cells: dict[int, str]) -> dict:
 EMPTY_FINDINGS = {"findings": []}
 
 
-class FakeNBSynth:
+class FakeNBFix:
     def __init__(self, notebook_IR):
         self.notebook_IR = notebook_IR
 
@@ -31,7 +31,7 @@ class FakeNBSynth:
 class TestDetectBugsEvent(unittest.TestCase):
     def setUp(self):
         self.notebook_IR = make_notebook({0: "x = 1", 1: "y = x + 1"})
-        self.nbsynth = FakeNBSynth(self.notebook_IR)
+        self.nbfix = FakeNBFix(self.notebook_IR)
 
     def test_cell_scope_calls_client_and_maps_result(self):
         client = MagicMock()
@@ -48,7 +48,7 @@ class TestDetectBugsEvent(unittest.TestCase):
         }
         event = DetectBugsEvent("cell", cell_index=1, client=client)
 
-        result = event.execute(self.nbsynth)
+        result = event.execute(self.nbfix)
 
         client.chat_json.assert_called_once()
         _, user_prompt = client.chat_json.call_args.args
@@ -62,7 +62,7 @@ class TestDetectBugsEvent(unittest.TestCase):
         client.chat_json.return_value = EMPTY_FINDINGS
         event = DetectBugsEvent("subgraph", cell_index=1, client=client)
 
-        event.execute(self.nbsynth)
+        event.execute(self.nbfix)
 
         _, user_prompt = client.chat_json.call_args.args
         self.assertIn("x = 1", user_prompt)
@@ -73,7 +73,7 @@ class TestDetectBugsEvent(unittest.TestCase):
         client.chat_json.return_value = EMPTY_FINDINGS
         event = DetectBugsEvent("full", client=client)
 
-        result = event.execute(self.nbsynth)
+        result = event.execute(self.nbfix)
 
         _, user_prompt = client.chat_json.call_args.args
         self.assertIn("x = 1", user_prompt)
@@ -83,12 +83,12 @@ class TestDetectBugsEvent(unittest.TestCase):
     def test_cell_scope_without_cell_index_raises(self):
         event = DetectBugsEvent("cell", client=MagicMock())
         with self.assertRaises(ValueError):
-            event.execute(self.nbsynth)
+            event.execute(self.nbfix)
 
     def test_unknown_scope_raises(self):
         event = DetectBugsEvent("not_a_scope", cell_index=0, client=MagicMock())
         with self.assertRaises(ValueError):
-            event.execute(self.nbsynth)
+            event.execute(self.nbfix)
 
     def test_llm_client_error_propagates(self):
         client = MagicMock()
@@ -96,7 +96,7 @@ class TestDetectBugsEvent(unittest.TestCase):
         event = DetectBugsEvent("full", client=client)
 
         with self.assertRaises(LLMClientError):
-            event.execute(self.nbsynth)
+            event.execute(self.nbfix)
 
 
 if __name__ == "__main__":

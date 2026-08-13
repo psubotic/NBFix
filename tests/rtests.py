@@ -1,5 +1,5 @@
 from sre_parse import fix_flags
-from analyzer import NBSynth
+from analyzer import NBFix
 from argparse import ArgumentParser
 from events import RunBatchEvent
 from analyses.runner.analysis_results import ErrorInfo, PathResult, Result, ErrorType
@@ -29,7 +29,7 @@ def make_result(res) -> Result:
     return result
 
 def tester(folder):
-    folder = "./nbsynth_backend/tests/resources/rtests/" if folder is None else folder
+    folder = "./nbfix_backend/tests/resources/rtests/" if folder is None else folder
     print("using folder "  + folder)
     dir_list = os.listdir(folder)
     for f in tqdm(dir_list):
@@ -38,11 +38,11 @@ def tester(folder):
 
         print("Test file: " + f)
         notebook = read_json(folder+f)
-        nbsynth = NBSynth(level=5)
-        nbsynth.load_notebook(notebook["cells"])
-        nbsynth.add_analyses([constants.DATA_LEAK, constants.STALE, constants.ISOLATED, constants.IDLE])
+        nbfix = NBFix(level=5)
+        nbfix.load_notebook(notebook["cells"])
+        nbfix.add_analyses([constants.DATA_LEAK, constants.STALE, constants.ISOLATED, constants.IDLE])
         event = RunBatchEvent(0)
-        results = nbsynth.execute_event(event)
+        results = nbfix.execute_event(event)
         with open(folder + f + ".out", 'r') as file:
             r1 = make_result(json.load(file))
 
@@ -58,7 +58,7 @@ def tester(folder):
         print("\n")
 
 def main():
-    parser = ArgumentParser(description="NBSynth tester version 1.0 ")
+    parser = ArgumentParser(description="NBFix tester version 1.0 ")
     parser.add_argument("-f", "--folder",  type=str, help='Tests folder')
     args = parser.parse_args()
     tester(args.folder)

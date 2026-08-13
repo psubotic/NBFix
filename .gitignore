@@ -130,6 +130,6 @@ dmypy.json
 
 # JupyterLab extension build artifacts
 node_modules/
-jupyterlab-nbsynth/lib/
-jupyterlab-nbsynth/tsconfig.tsbuildinfo
-jupyterlab-nbsynth/jupyterlab_nbsynth/labextension/
+jupyterlab-nbfix/lib/
+jupyterlab-nbfix/tsconfig.tsbuildinfo
+jupyterlab-nbfix/jupyterlab_nbfix/labextension/

@@ -1,7 +1,7 @@
 import unittest
 
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.llm.context_builder import (
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.llm.context_builder import (
     build_cell_context,
     build_dependency_edges,
     build_full_notebook_context,

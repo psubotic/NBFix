@@ -70,10 +70,10 @@ export class Events {
     }
     startServer = async(extensionPath) => {
         return new Promise((resolve, reject) => {
-            let nbsynthServerProcess = child_process.spawn('python', [extensionPath]);
+            let nbfixServerProcess = child_process.spawn('python', [extensionPath]);
             setTimeout(() => resolve("all good"), 500)
-            nbsynthServerProcess.stderr.on('data', (err) => {reject(`Problem starting NBSynth server ${err.message}`)})
-            nbsynthServerProcess.stdout.on('data', (data) => {
+            nbfixServerProcess.stderr.on('data', (err) => {reject(`Problem starting NBFix server ${err.message}`)})
+            nbfixServerProcess.stdout.on('data', (data) => {
                 console.log(`stdout: ${data}`);
             });
         })
@@ -87,7 +87,7 @@ export class Events {
         notebook_doc.getCells().forEach(cell => {
             this.serverHandler.remove_diagnostics(cell.document.uri);
         })
-        vscode.window.showWarningMessage("NBSynth session ended for the closed notebook.")
+        vscode.window.showWarningMessage("NBFix session ended for the closed notebook.")
     }
     
     changeNotebook = async (notebookChangeEvent: vscode.NotebookDocumentChangeEvent) => {

@@ -1,14 +1,14 @@
 from ast import Assert
 import unittest
 
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.analyses.abs_states.dataleak_abs_state import DataLeakAbstractDomain, DataLeakAbstractState, Usage
-from nbsynth.analyses.abs_domains.dataleak_lattice.data_frame_sets import DataFrameSet
-from nbsynth.analyses.abs_domains.dataleak_lattice.data_frame import DataFrame
-from nbsynth.analyses.abs_domains.dataleak_lattice.columns import Columns
-from nbsynth.analyses.abs_domains.dataleak_lattice.rows import Rows
-from nbsynth.parser.cfg_nodes import Node
-from nbsynth.analyses.runner.analysis_results import ErrorInfo, ErrorType
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.analyses.abs_states.dataleak_abs_state import DataLeakAbstractDomain, DataLeakAbstractState, Usage
+from nbfix.analyses.abs_domains.dataleak_lattice.data_frame_sets import DataFrameSet
+from nbfix.analyses.abs_domains.dataleak_lattice.data_frame import DataFrame
+from nbfix.analyses.abs_domains.dataleak_lattice.columns import Columns
+from nbfix.analyses.abs_domains.dataleak_lattice.rows import Rows
+from nbfix.parser.cfg_nodes import Node
+from nbfix.analyses.runner.analysis_results import ErrorInfo, ErrorType
 
 class TestDataFrames(unittest.TestCase):
     def setUp(self):

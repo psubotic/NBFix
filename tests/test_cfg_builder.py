@@ -1,8 +1,8 @@
 import unittest
 
-from nbsynth.parser.ast_transformer import build_ast
-from nbsynth.parser.cfg_builder import get_cfg
-from nbsynth.parser.cfg_nodes import (
+from nbfix.parser.ast_transformer import build_ast
+from nbfix.parser.cfg_builder import get_cfg
+from nbfix.parser.cfg_nodes import (
     AssignmentCallNode,
     AssignmentNode,
     BBorBInode,
@@ -11,7 +11,7 @@ from nbsynth.parser.cfg_nodes import (
     EntryOrExitNode,
     TryNode,
 )
-from nbsynth.parser.lark_parser import parse_to_tree
+from nbfix.parser.lark_parser import parse_to_tree
 
 
 def build_cfg(src):

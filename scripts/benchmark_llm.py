@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 """
 Benchmarking harness comparing LLM bug-detection configs (e.g. a small
-local model vs. a large hosted one, with vs. without NBSynth's structural
+local model vs. a large hosted one, with vs. without NBFix's structural
 context) over a directory of eval notebooks.
 
-Not part of the installed nbsynth package - a dev-only research tool.
+Not part of the installed nbfix package - a dev-only research tool.
 Requires `pip install -e ".[dev,llm]"` first.
 
 Each notebook in --eval-dir may have an optional
@@ -28,13 +28,13 @@ import os
 import time
 from dataclasses import dataclass
 
-from nbsynth.analyses.runner.analysis_results import Result
-from nbsynth.llm.client import LLMClient, LLMClientError
-from nbsynth.llm.context_builder import build_cell_context, build_subgraph_context, build_full_notebook_context
-from nbsynth.llm.prompts import SYSTEM_PROMPT, build_user_prompt
-from nbsynth.llm.notebook_loading import load_notebook_resilient
-from nbsynth.llm.result_mapping import map_findings_to_result
-from nbsynth.resource_utils.utils import read_json
+from nbfix.analyses.runner.analysis_results import Result
+from nbfix.llm.client import LLMClient, LLMClientError
+from nbfix.llm.context_builder import build_cell_context, build_subgraph_context, build_full_notebook_context
+from nbfix.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from nbfix.llm.notebook_loading import load_notebook_resilient
+from nbfix.llm.result_mapping import map_findings_to_result
+from nbfix.resource_utils.utils import read_json
 
 _SCOPED_CONTEXT_BUILDERS = {
     "cell": build_cell_context,
@@ -42,9 +42,9 @@ _SCOPED_CONTEXT_BUILDERS = {
 }
 
 # Same task/output-contract as prompts.SYSTEM_PROMPT, minus the dependency
-# graph section - the ablation baseline for "does NBSynth's structural
+# graph section - the ablation baseline for "does NBFix's structural
 # context actually help". Deliberately kept local to this script rather
-# than added to nbsynth.llm.prompts: it isn't a real product mode, only a
+# than added to nbfix.llm.prompts: it isn't a real product mode, only a
 # research comparison.
 NO_CONTEXT_SYSTEM_PROMPT = """You are reviewing Python code from Jupyter notebook cells for bugs.
 

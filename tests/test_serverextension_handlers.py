@@ -11,7 +11,7 @@ TEST_NOTEBOOK = [
 async def _post_event(jp_fetch, event, notebook_id, params=None):
     try:
         response = await jp_fetch(
-            "nbsynth",
+            "nbfix",
             "api",
             "event",
             method="POST",
@@ -46,7 +46,7 @@ async def test_unknown_event_returns_400(jp_fetch):
 async def test_missing_required_field_returns_400(jp_fetch):
     try:
         response = await jp_fetch(
-            "nbsynth",
+            "nbfix",
             "api",
             "event",
             method="POST",

@@ -1,7 +1,7 @@
 import unittest
-from nbsynth.analyses.stale_cell_analysis import StaleCellAnalysis
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
+from nbfix.analyses.stale_cell_analysis import StaleCellAnalysis
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
 
 
 class TestStaleCellAnalysis(unittest.TestCase):

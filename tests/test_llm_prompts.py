@@ -1,8 +1,8 @@
 import unittest
 
-from nbsynth.ir.intermediate_representations import IntermediateRepresentations
-from nbsynth.llm.context_builder import build_subgraph_context
-from nbsynth.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from nbfix.ir.intermediate_representations import IntermediateRepresentations
+from nbfix.llm.context_builder import build_subgraph_context
+from nbfix.llm.prompts import SYSTEM_PROMPT, build_user_prompt
 
 
 class TestBuildUserPrompt(unittest.TestCase):

@@ -1,6 +1,6 @@
 import unittest
 
-from nbsynth.events import (
+from nbfix.events import (
     AddCellEvent,
     ChangeCellCodeEvent,
     CloseNotebookEvent,
@@ -8,7 +8,7 @@ from nbsynth.events import (
     RemoveCellEvent,
     RunCellEvent,
 )
-from nbsynth.serverextension.dispatch import InvalidEventError, build_event
+from nbfix.serverextension.dispatch import InvalidEventError, build_event
 
 
 class TestBuildEvent(unittest.TestCase):

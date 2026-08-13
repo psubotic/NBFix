@@ -9,7 +9,7 @@ import pytest
 httpx = pytest.importorskip("httpx")
 openai = pytest.importorskip("openai")
 
-from nbsynth.llm.client import LLMClient, LLMClientError
+from nbfix.llm.client import LLMClient, LLMClientError
 
 
 def _make_dummy_connection_error():
@@ -25,7 +25,7 @@ def _make_completion_response(content: str, usage=None):
 
 
 class TestLLMClient(unittest.TestCase):
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_chat_json_returns_parsed_response(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.return_value = _make_completion_response(
@@ -47,7 +47,7 @@ class TestLLMClient(unittest.TestCase):
             ],
         )
 
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_connection_error_raises_llm_client_error(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.side_effect = _make_dummy_connection_error()
@@ -56,7 +56,7 @@ class TestLLMClient(unittest.TestCase):
         with self.assertRaises(LLMClientError):
             client.chat_json("system prompt", "user prompt")
 
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_malformed_json_raises_llm_client_error(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.return_value = _make_completion_response(
@@ -67,7 +67,7 @@ class TestLLMClient(unittest.TestCase):
         with self.assertRaises(LLMClientError):
             client.chat_json("system prompt", "user prompt")
 
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_chat_json_with_usage_returns_findings_and_token_counts(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         usage = MagicMock(prompt_tokens=100, completion_tokens=20, total_tokens=120)
@@ -84,7 +84,7 @@ class TestLLMClient(unittest.TestCase):
             {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
         )
 
-    @patch("nbsynth.llm.client.openai.OpenAI")
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_chat_json_with_usage_handles_missing_usage(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.return_value = _make_completion_response(

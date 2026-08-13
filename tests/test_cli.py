@@ -1,9 +1,9 @@
 import unittest
-from nbsynth.cli import *
-from nbsynth.resource_utils.utils import read_json, TEST_RES_PATH
-from nbsynth.constants import *
+from nbfix.cli import *
+from nbfix.resource_utils.utils import read_json, TEST_RES_PATH
+from nbfix.constants import *
 
-class TestNBSynthCLI(unittest.TestCase):
+class TestNBFixCLI(unittest.TestCase):
     def setUp(self) -> None:
         self.test_notebooks = ["Test.ipynb", "Test.ipynb", "Basic.ipynb"]
         self.analyses = [
@@ -32,7 +32,7 @@ class TestNBSynthCLI(unittest.TestCase):
     """
     def test_AST_analyses(self):
         results_test = json.loads(
-            nbsynth(
+            nbfix(
                 filename=None,
                 notebook=mngr.grab_local(TEST_RES_PATH + "Test.ipynb"),
                 analyses=self.analyses,
@@ -46,7 +46,7 @@ class TestNBSynthCLI(unittest.TestCase):
             )
 
         results_basic = json.loads(
-            nbsynth(
+            nbfix(
                 filename=TEST_RES_PATH + "Basic.ipynb",
                 notebook=None,
                 analyses=self.analyses,
@@ -60,7 +60,7 @@ class TestNBSynthCLI(unittest.TestCase):
             )
     """
     def test_dataleak(self):
-        results_true = nbsynth(
+        results_true = nbfix(
                 filename=None,
                 notebook=read_json(TEST_RES_PATH + "dataleak_true.ipynb"),
                 analyses=[DATA_LEAK],
@@ -68,7 +68,7 @@ class TestNBSynthCLI(unittest.TestCase):
                 level=10
             )
         self.assertEqual(results_true, '[{"cell_id":4,"errors":[{"line":2,"label":"X_selected_test", "error_type":"ErrorType.TERMINAL", "message":"Training model with data leak."}],"path":[0, 1, 2, 3, 4]}]')
-        results_false = nbsynth(
+        results_false = nbfix(
                 filename=None,
                 notebook=read_json(TEST_RES_PATH + "dataleak_false.ipynb"),
                 analyses=[DATA_LEAK],

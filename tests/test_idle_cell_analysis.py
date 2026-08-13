@@ -1,6 +1,6 @@
 import unittest
-from nbsynth.analyses.idle_cell_analysis import IdleCellAnalysis
-from nbsynth.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
+from nbfix.analyses.idle_cell_analysis import IdleCellAnalysis
+from nbfix.resource_utils.utils import load_notebook, read_json, TEST_RES_PATH
 
 
 class TestIdleCellAnalysis(unittest.TestCase):

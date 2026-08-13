@@ -1,10 +1,10 @@
-# Running NBSynth
+# Running NBFix
 
-NBSynth can be used three ways: as a standalone CLI, through a VS Code
+NBFix can be used three ways: as a standalone CLI, through a VS Code
 extension prototype, or through a JupyterLab extension. This document covers
 setup and commands for all three.
 
-## 1. Command line (`nbsynth` CLI)
+## 1. Command line (`nbfix` CLI)
 
 This is the only interface that's fully working today - no server, no
 editor integration, just a notebook or script in, JSON diagnostics out.
@@ -12,8 +12,8 @@ editor integration, just a notebook or script in, JSON diagnostics out.
 ### Setup
 
 ```bash
-git clone git@github.com:psubotic/NBSynth.git
-cd NBSynth
+git clone git@github.com:psubotic/NBFix.git
+cd NBFix
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
@@ -22,7 +22,7 @@ pip install -e ".[dev]"
 ### Usage
 
 ```bash
-nbsynth -f <path-to-notebook-or-script> -a <analysis-name> [<analysis-name> ...] [-s <start-cell>] [-l <level>]
+nbfix -f <path-to-notebook-or-script> -a <analysis-name> [<analysis-name> ...] [-s <start-cell>] [-l <level>]
 ```
 
 | Flag | Meaning |
@@ -51,19 +51,19 @@ a `KeyError` and crashes the CLI.
 Run one analysis on a notebook:
 
 ```bash
-nbsynth -f tests/resources/Basic.ipynb -a "Idle Cells Analysis"
+nbfix -f tests/resources/Basic.ipynb -a "Idle Cells Analysis"
 ```
 
 Run multiple analyses at once:
 
 ```bash
-nbsynth -f tests/resources/dataleak_true.ipynb -a "Data Leak Analysis" "Stale Cells Analysis"
+nbfix -f tests/resources/dataleak_true.ipynb -a "Data Leak Analysis" "Stale Cells Analysis"
 ```
 
 Analyze a plain Python script instead of a notebook:
 
 ```bash
-nbsynth -f my_script.py -a "Idle Cells Analysis"
+nbfix -f my_script.py -a "Idle Cells Analysis"
 ```
 
 Output is a JSON array of per-cell results printed to stdout, e.g.:
@@ -86,19 +86,19 @@ predates the JupyterLab extension and was never completed:
 - There's no `package.json`, so it can't be built or installed as a real
   VS Code extension (`vsce package` / `code --install-extension` have
   nothing to work with).
-- It talks to `nbsynth.server` (`src/nbsynth/server.py`) over a raw TCP
+- It talks to `nbfix.server` (`src/nbfix/server.py`) over a raw TCP
   socket on port 9999, but that server module uses non-relative imports
   (`from events import *`), so it only runs if launched as a loose script
-  from inside `src/nbsynth/` with that directory on `sys.path` - it does
-  not work when NBSynth is installed normally as a package.
+  from inside `src/nbfix/` with that directory on `sys.path` - it does
+  not work when NBFix is installed normally as a package.
 - `extension/src/constants.ts` hardcodes the server's location as a
-  Windows-style path (`SERVER_PATH = "\nbsynth\src\server.py"`), so even
+  Windows-style path (`SERVER_PATH = "\nbfix\src\server.py"`), so even
   the socket-spawning logic assumes a specific machine layout.
 
 If you want to pick this up and finish it, the missing pieces are: a
 `package.json` (`vscode` extension manifest + esbuild/webpack config), a
-fixed `nbsynth.server` entry point using relative imports so it runs via
-`python -m nbsynth.server`, and a cross-platform way to locate that
+fixed `nbfix.server` entry point using relative imports so it runs via
+`python -m nbfix.server`, and a cross-platform way to locate that
 entry point instead of the hardcoded path in `constants.ts`. Until then,
 there's no working setup/run sequence to give here.
 
@@ -108,20 +108,20 @@ This is the fully working, live-diagnostics integration: squiggly
 underlines on notebook cells as you edit, add, remove, and run them. It's
 split into two packages so installing the JupyterLab UI (which needs
 `jupyterlab` and a Node/npm toolchain) never weighs down a plain
-`pip install nbsynth`:
+`pip install nbfix`:
 
-- `nbsynth[jupyter]` - the `jupyter_server` REST extension
-  (`src/nbsynth/serverextension/`) that runs NBSynth's analysis engine and
+- `nbfix[jupyter]` - the `jupyter_server` REST extension
+  (`src/nbfix/serverextension/`) that runs NBFix's analysis engine and
   returns diagnostics over HTTP. Pure Python, no Node required.
-- `jupyterlab-nbsynth/` - the JupyterLab labextension (TypeScript) that
+- `jupyterlab-nbfix/` - the JupyterLab labextension (TypeScript) that
   calls that API and renders diagnostics via CodeMirror. Building it
   requires Node/npm.
 
 ### Setup
 
 ```bash
-git clone git@github.com:psubotic/NBSynth.git
-cd NBSynth
+git clone git@github.com:psubotic/NBFix.git
+cd NBFix
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
@@ -129,7 +129,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -e ".[jupyter]"
 
 # 2. Build and install the labextension (requires Node.js/npm)
-pip install ./jupyterlab-nbsynth
+pip install ./jupyterlab-nbfix
 ```
 
 The second `pip install` runs `npm install` and a webpack build under the
@@ -140,10 +140,10 @@ first time.
 
 ```bash
 jupyter server extension list
-# should show: nbsynth.serverextension  enabled  OK
+# should show: nbfix.serverextension  enabled  OK
 
 jupyter labextension list
-# should show: jupyterlab-nbsynth v0.1.0  enabled  OK  (python, nbsynth)
+# should show: jupyterlab-nbfix v0.1.0  enabled  OK  (python, nbfix)
 ```
 
 ### Run it
@@ -159,10 +159,10 @@ JupyterLab is running.
 
 ### Rebuilding after frontend changes
 
-If you edit `jupyterlab-nbsynth/src/*.ts`, rebuild with:
+If you edit `jupyterlab-nbfix/src/*.ts`, rebuild with:
 
 ```bash
-cd jupyterlab-nbsynth
+cd jupyterlab-nbfix
 npm run build:prod
 ```
 
@@ -176,8 +176,8 @@ self-contained image, so you don't need Node, npm, or a Python venv on your
 own machine at all:
 
 ```bash
-docker build -t nbsynth-jupyterlab .
-docker run -p 8888:8888 -v "$(pwd):/home/nbsynth/work" nbsynth-jupyterlab
+docker build -t nbfix-jupyterlab .
+docker run -p 8888:8888 -v "$(pwd):/home/nbfix/work" nbfix-jupyterlab
 ```
 
 JupyterLab generates a fresh access token on every start and prints it to
@@ -190,9 +190,9 @@ http://127.0.0.1:8888/lab?token=<token>
 ```
 
 and open that URL in a browser. The `-v` mount above puts your local
-directory at `/home/nbsynth/work` inside the container, so notebooks you
+directory at `/home/nbfix/work` inside the container, so notebooks you
 open/save there persist on your host machine; drop it if you just want to
-try NBSynth against the container's own filesystem.
+try NBFix against the container's own filesystem.
 
 The build is a multi-stage Dockerfile - Node.js is only used in the build
 stage to compile the labextension and never ends up in the final image, so

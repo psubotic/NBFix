@@ -1,0 +1,10 @@
+/* NBFix diagnostics are rendered entirely through the CodeMirror linter
+   extension registered in src/linter.ts. */
+
+/* Distinguishes LLM-suggested findings (detect_bugs) from deterministic
+   ones (STALE/IDLE/ISOLATED/DATA_LEAK) - a dashed underline reads as
+   "suggested" rather than "proven", matching the difference in confidence
+   between an AI-flagged issue and a statically-proven one. */
+.cm-nbfix-llm-finding {
+  text-decoration-style: dashed !important;
+}

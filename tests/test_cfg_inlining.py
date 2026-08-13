@@ -1,9 +1,9 @@
 import unittest
 
-from nbsynth.parser.ast_transformer import build_ast
-from nbsynth.parser.cfg_builder import get_cfg
-from nbsynth.parser.cfg_nodes import AssignmentNode, RestoreNode
-from nbsynth.parser.lark_parser import parse_to_tree
+from nbfix.parser.ast_transformer import build_ast
+from nbfix.parser.cfg_builder import get_cfg
+from nbfix.parser.cfg_nodes import AssignmentNode, RestoreNode
+from nbfix.parser.lark_parser import parse_to_tree
 
 
 def build_cfg(src):
@@ -26,7 +26,7 @@ class TestReducedInlining(unittest.TestCase):
     def test_bare_call_no_assignment_no_return_required(self):
         cfg = build_cfg("def f(x):\n    print(x)\nf(5)\n")
         # def-node, param-bind, then the print() call as a normal blackbox
-        from nbsynth.parser.cfg_nodes import BBorBInode
+        from nbfix.parser.cfg_nodes import BBorBInode
         self.assertTrue(any(isinstance(node, BBorBInode) and node.func_name == "print" for node in cfg.nodes))
         self.assertFalse(any(isinstance(node, RestoreNode) for node in cfg.nodes))
 
@@ -57,7 +57,7 @@ class TestReducedInlining(unittest.TestCase):
             "    return y\n"
             "z = f(5)\n"
         )
-        from nbsynth.parser.cfg_nodes import CondNode
+        from nbfix.parser.cfg_nodes import CondNode
         self.assertTrue(any(isinstance(node, CondNode) for node in cfg.nodes))
         restore = next(n for n in cfg.nodes if isinstance(n, RestoreNode))
         self.assertEqual(restore.left_hand_side, "z")

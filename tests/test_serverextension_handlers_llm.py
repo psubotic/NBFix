@@ -16,7 +16,7 @@ TEST_NOTEBOOK = [
 async def _post_event(jp_fetch, event, notebook_id, params=None):
     try:
         response = await jp_fetch(
-            "nbsynth",
+            "nbfix",
             "api",
             "event",
             method="POST",
@@ -67,7 +67,7 @@ def _mock_openai_response(content: str):
     return response
 
 
-@patch("nbsynth.llm.client.openai.OpenAI")
+@patch("nbfix.llm.client.openai.OpenAI")
 async def test_detect_bugs_happy_path(mock_openai_cls, jp_fetch):
     mock_client = mock_openai_cls.return_value
     mock_client.chat.completions.create.return_value = _mock_openai_response(
@@ -86,7 +86,7 @@ async def test_detect_bugs_happy_path(mock_openai_cls, jp_fetch):
     assert payload["diagnostics"] == []
 
 
-@patch("nbsynth.llm.client.openai.OpenAI")
+@patch("nbfix.llm.client.openai.OpenAI")
 async def test_detect_bugs_unreachable_endpoint_returns_500_not_crash(
     mock_openai_cls, jp_fetch
 ):

@@ -1,6 +1,6 @@
 import unittest
 
-from nbsynth.llm.notebook_loading import load_notebook_resilient
+from nbfix.llm.notebook_loading import load_notebook_resilient
 
 
 class TestLoadNotebookResilient(unittest.TestCase):

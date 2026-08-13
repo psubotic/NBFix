@@ -1,0 +1,266 @@
+// ============================================================================
+// NBFix notebook-cell grammar — DRAFT v0.1 (FOR REVIEW, NOT WIRED UP YET)
+//
+// Target library : Lark (https://github.com/lark-parser/lark)
+// Parser algo    : Earley while validating the grammar; migrate the final,
+//                  unambiguous subset to LALR(1) for speed once settled.
+// Indentation    : Python is not context-free w.r.t. blocks, so like Lark's
+//                  own contrib python3 grammar we pair this file with a
+//                  `lark.indenter.Indenter` postlex that turns leading
+//                  whitespace into synthetic _INDENT/_DEDENT tokens before
+//                  the grammar ever sees them.
+//
+// Scope: this is a *subset* of Python, not the full language. It targets
+// what actually shows up in Jupyter/data-science notebook cells and, more
+// narrowly, the constructs the current pipeline (gast + ast + beniget +
+// simple_cfg, see externals/simple_cfg/simple_cfg/visitors/{statement,
+// expression}_visitor.py and framework/nbfix/src/IR/visitors/*.py)
+// already has to understand to build its CFG / def-use chains. Constructs
+// not needed by any analysis (dataleak / stale / idle / isolated) are
+// deliberately left out for now — see the priority tiers below and the
+// coverage notes sent alongside this file.
+//
+// Priority tags used throughout (discussed further in the next review round):
+//   P0 - required for any cell to parse at all / feeds CFG+UD-chains today
+//   P1 - common in pandas/numpy/sklearn notebook code, not yet load-bearing
+//   P2 - rarer / deferred until a concrete analysis needs it
+// ============================================================================
+
+%declare _INDENT _DEDENT
+
+start: (_NEWLINE | stmt)*
+
+// -----------------------------------------------------------------------
+// Statements
+// -----------------------------------------------------------------------
+
+?stmt: simple_stmt
+     | compound_stmt
+
+simple_stmt: small_stmt (";" small_stmt)* [";"] _NEWLINE
+
+?small_stmt: expr_stmt        // P0 — bare expressions, e.g. `df.head()`
+           | assign_stmt      // P0
+           | aug_assign_stmt  // P0 — x += 1
+           | ann_assign_stmt  // P1 — x: int = 1
+           | del_stmt         // P1
+           | pass_stmt        // P0
+           | break_stmt       // P0
+           | continue_stmt    // P0
+           | return_stmt      // P0
+           | raise_stmt       // P0
+           | import_stmt      // P0
+           | import_from_stmt // P0
+           | global_stmt      // P1
+           | nonlocal_stmt    // P2
+           | assert_stmt      // P1
+
+expr_stmt: testlist_star_expr
+
+assign_stmt: assign_target ("=" assign_target)* "=" testlist_star_expr
+           // supports chained assignment: a = b = c = expr()
+assign_target: testlist_star_expr
+
+aug_assign_stmt: testlist_star_expr aug_assign_op testlist_star_expr
+!aug_assign_op: "+=" | "-=" | "*=" | "/=" | "//=" | "%=" | "**="
+              | "&=" | "|=" | "^=" | ">>=" | "<<=" | "@="
+
+ann_assign_stmt: testlist_star_expr ":" test ["=" testlist_star_expr]
+
+del_stmt: "del" exprlist
+pass_stmt: "pass"
+break_stmt: "break"
+continue_stmt: "continue"
+return_stmt: "return" [testlist_star_expr]
+raise_stmt: "raise" [test] ["from" test]
+
+import_stmt: "import" dotted_as_names
+import_from_stmt: "from" import_from_source "import" import_from_targets
+!import_from_source: "."* dotted_name?
+import_from_targets: "*" | "(" import_as_names ")" | import_as_names
+dotted_as_names: dotted_as_name ("," dotted_as_name)*
+dotted_as_name: dotted_name ["as" NAME]
+import_as_names: import_as_name ("," import_as_name)*
+import_as_name: NAME ["as" NAME]
+dotted_name: NAME ("." NAME)*
+
+global_stmt: "global" NAME ("," NAME)*
+nonlocal_stmt: "nonlocal" NAME ("," NAME)*
+assert_stmt: "assert" test ["," test]
+
+// -- compound statements --------------------------------------------------
+
+?compound_stmt: if_stmt      // P0
+              | while_stmt   // P0
+              | for_stmt     // P0
+              | try_stmt     // P0
+              | with_stmt    // P1
+              | funcdef      // P0
+              | classdef     // P1
+              | async_stmt   // P2 — `async def` / `async for` / `async with`
+                             //      (relevant for notebooks: top-level
+                             //      `await` under IPython's autoawait)
+
+if_stmt: "if" test ":" suite ("elif" test ":" suite)* ["else" ":" suite]
+while_stmt: "while" test ":" suite ["else" ":" suite]
+for_stmt: "for" exprlist "in" testlist_star_expr ":" suite ["else" ":" suite]
+// NOTE: the target uses `exprlist` (built from `expr`), not `assign_target`
+// (built from `test`) -- `test` can absorb "in" as a comparison operator,
+// which creates a shift/reduce trap against the for-loop's own "in".
+// `comp_for` below has the same target-vs-"in" hazard and already used
+// `exprlist` correctly.
+
+try_stmt: "try" ":" suite except_clause+ ["else" ":" suite] ["finally" ":" suite]
+        | "try" ":" suite "finally" ":" suite
+except_clause: "except" [test] ["as" NAME] ":" suite
+
+with_stmt: "with" with_item ("," with_item)* ":" suite
+with_item: test ["as" assign_target]
+
+funcdef: [decorators] "def" NAME "(" [parameters] ")" ["->" test] ":" suite
+classdef: [decorators] "class" NAME "(" [arglist] ")" ":" suite
+        | [decorators] "class" NAME ":" suite
+
+decorators: decorator+
+decorator: "@" dotted_name "(" [arglist] ")" _NEWLINE
+         | "@" dotted_name _NEWLINE
+
+async_stmt: "async" (funcdef | for_stmt | with_stmt)
+
+parameters: param ("," param)*
+?param: plain_param
+      | star_param
+      | dstar_param
+plain_param: NAME [":" test] ["=" test]    // P0 — plain / default / annotated
+star_param: "*" [NAME [":" test]]          // P1 — *args / bare "*" (kw-only marker)
+dstar_param: "**" NAME [":" test]          // P1 — **kwargs
+// NOTE: PEP 570 positional-only "/" marker deferred (P2), dropped for now
+// to keep this rule LALR-friendly.
+
+suite: simple_stmt
+     | _NEWLINE _INDENT stmt+ _DEDENT
+
+// -----------------------------------------------------------------------
+// Expressions (precedence climbs top -> bottom, loosest first)
+// -----------------------------------------------------------------------
+
+testlist_star_expr: (test | star_expr) ("," (test | star_expr))* [","]
+exprlist: (expr | star_expr) ("," (expr | star_expr))* [","]
+star_expr: "*" expr                        // P1 — a, *rest = values
+
+?test: walrus_expr
+     | ternary_test
+     | lambdef                             // P1
+
+ternary_test: or_test ["if" or_test "else" test]  // P1 — ternary
+
+walrus_expr: NAME ":=" test                // P2 — assignment expressions
+
+lambdef: "lambda" [lambda_parameters] ":" test    // P1 — very common in .apply()
+// NOTE: lambda params reuse a *separate* rule from funcdef's `parameters`
+// on purpose: a bare "lambda x: ..." is genuinely ambiguous for an LALR(1)
+// parser if params can carry annotations (`":" test`), since the ":" could
+// either start the annotation or terminate the lambdef. Real Python doesn't
+// allow annotations on lambda params either, so this also matches the
+// language, not just the parser's limitations.
+lambda_parameters: lambda_param ("," lambda_param)*
+?lambda_param: NAME ["=" test]        -> plain_lambda_param
+             | "*" [NAME]              -> star_lambda_param
+             | "**" NAME               -> dstar_lambda_param
+
+?or_test: and_test ("or" and_test)*
+?and_test: not_test ("and" not_test)*
+?not_test: "not" not_test -> not_op
+         | comparison
+
+?comparison: expr (comp_op expr)*
+!comp_op: "<" | ">" | "==" | ">=" | "<=" | "<>" | "!="
+        | "in" | "not" "in" | "is" | "is" "not"
+
+?expr: or_bitwise
+?or_bitwise: xor_bitwise ("|" xor_bitwise)*
+?xor_bitwise: and_bitwise ("^" and_bitwise)*
+?and_bitwise: shift_expr ("&" shift_expr)*
+?shift_expr: arith_expr
+           | shift_expr_op
+!shift_expr_op: shift_expr ("<<" | ">>") arith_expr
+?arith_expr: term
+           | arith_expr_op
+!arith_expr_op: arith_expr ("+" | "-") term
+?term: factor
+     | term_op
+!term_op: term ("*" | "@" | "/" | "%" | "//") factor
+!factor_op: ("+" | "-" | "~") factor
+?factor: factor_op -> unary_op
+       | power
+?power: atom_trailer ["**" factor]
+
+atom_trailer: atom trailer*
+?trailer: "." NAME             -> attr_access     // P0 — df.iloc
+        | "(" [arglist] ")"    -> call             // P0
+        | "[" subscriptlist "]" -> subscript        // P0 — df.iloc[...], df["col"]
+
+?atom: "(" [testlist_comp_tuple] ")"   -> tuple_atom   // P0
+     | "[" [testlist_comp_list] "]"    -> list_atom    // P0
+     | "{" [dict_or_set_maker] "}"     -> dict_or_set_atom // P1
+     | NAME                            -> name_atom    // P0
+     | number_atom                     // P0
+     | string_atom                     // P0 (incl. f-strings, P1)
+     | "None"                          -> const_none   // P0
+     | "True"                          -> const_true   // P0
+     | "False"                         -> const_false  // P0
+     | "..."                           -> const_ellipsis // P2
+
+number_atom: NUMBER
+string_atom: STRING+   // adjacent-literal concatenation, P1
+
+testlist_comp_tuple: (test | star_expr) comp_for
+                    | (test | star_expr) ("," (test | star_expr))* [","]
+testlist_comp_list: (test | star_expr) comp_for
+                   | (test | star_expr) ("," (test | star_expr))* [","]
+
+dict_or_set_maker: test comp_for                                  -> set_comp   // P1
+                  | (test ",")* test [","]                        -> set_literal // P1
+                  | test ":" test comp_for                        -> dict_comp  // P1
+                  | (dict_pair ("," dict_pair)* [","])?            -> dict_literal // P0
+dict_pair: test ":" test | "**" or_bitwise   // ** = dict unpacking, P2
+
+comp_for: "for" exprlist "in" or_test [comp_if]
+comp_if: "if" or_test [comp_if]            // note: uses or_test, no walrus/ternary
+
+subscriptlist: subscript ("," subscript)* [","]
+?subscript: test                            -> index_subscript      // P0
+          | [test] ":" [test] [":" [test]]  -> slice_subscript      // P0 — a[1:5], a[::2]
+
+arglist: argument ("," argument)* [","]
+?argument: test                    -> pos_arg          // P0
+         | NAME "=" test           -> kw_arg            // P0 — keyword args
+         | "*" test                -> star_arg          // P1 — f(*args)
+         | "**" test               -> dstar_arg         // P1 — f(**kwargs)
+         | test comp_for           -> genexpr_arg        // P2 — sum(x for x in y)
+
+// -----------------------------------------------------------------------
+// Terminals
+// -----------------------------------------------------------------------
+
+NAME: /[^\W\d]\w*/
+_DIGITS: /\d(_?\d)*/
+_EXP: /[eE][+-]?/ _DIGITS
+NUMBER: _DIGITS "." _DIGITS? _EXP? "j"?
+      | "." _DIGITS _EXP? "j"?
+      | _DIGITS _EXP "j"?
+      | _DIGITS "j"?
+      | "0" /[xX]/ /[0-9a-fA-F](_?[0-9a-fA-F])*/
+      | "0" /[oO]/ /[0-7](_?[0-7])*/
+      | "0" /[bB]/ /[01](_?[01])*/
+
+STRING: /([fFrRbBuU]{0,2})('''.*?'''|""".*?"""|'(?!'').*?'|"(?!"").*?")/s
+
+COMMENT: /#[^\n]*/
+%ignore COMMENT
+%ignore /[ \t\f]+/            // intra-line whitespace (not newlines: significant)
+%ignore /\\[\r\n]/            // backslash line-continuation
+
+_NEWLINE: ( /\r?\n[ \t]*/ | COMMENT )+
+
+// _INDENT / _DEDENT are injected by the Indenter postlex, not matched here.

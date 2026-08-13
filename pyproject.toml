@@ -3,7 +3,7 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "nbsynth"
+name = "nbfix"
 version = "0.1.0"
 description = "Static analysis framework for data science notebooks"
 readme = "README.md"
@@ -17,15 +17,15 @@ dev = [
     "pytest",
     "pytest-jupyter[server]>=0.9",
 ]
-# Registers the nbsynth REST API inside a running Jupyter server. This is
+# Registers the nbfix REST API inside a running Jupyter server. This is
 # deliberately just jupyter_server, not jupyterlab - the labextension that
-# talks to this API is a separate package (jupyterlab-nbsynth/) so that
+# talks to this API is a separate package (jupyterlab-nbfix/) so that
 # installing it (and its jupyterlab/Node build-time cost) is opt-in and
-# doesn't weigh down a plain `pip install nbsynth`.
+# doesn't weigh down a plain `pip install nbfix`.
 jupyter = [
     "jupyter_server>=2.0,<3",
 ]
-# LLM-assisted bug detection, grounded in NBSynth's own dependency/def-use
+# LLM-assisted bug detection, grounded in NBFix's own dependency/def-use
 # analysis. Kept fully optional and separate from `dev`/`jupyter` - the
 # base package and the JupyterLab extension must never gain an import-time
 # dependency on an LLM client just because this feature exists.
@@ -34,10 +34,10 @@ llm = [
 ]
 
 [project.scripts]
-nbsynth = "nbsynth.cli:main"
+nbfix = "nbfix.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/nbsynth"]
+packages = ["src/nbfix"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "jupyter-config/jupyter_server_config.d" = "etc/jupyter/jupyter_server_config.d"

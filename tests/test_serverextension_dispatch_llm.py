@@ -4,8 +4,8 @@ import pytest
 
 pytest.importorskip("openai")
 
-from nbsynth.llm.detect_bugs_event import DetectBugsEvent
-from nbsynth.serverextension.dispatch import InvalidEventError, build_event
+from nbfix.llm.detect_bugs_event import DetectBugsEvent
+from nbfix.serverextension.dispatch import InvalidEventError, build_event
 
 
 class TestDetectBugsDispatch(unittest.TestCase):

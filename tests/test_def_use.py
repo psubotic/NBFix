@@ -1,8 +1,8 @@
 import unittest
 
-from nbsynth.parser.ast_transformer import build_ast
-from nbsynth.parser.def_use import AssignsVisitor, DefUseChains
-from nbsynth.parser.lark_parser import parse_to_tree
+from nbfix.parser.ast_transformer import build_ast
+from nbfix.parser.def_use import AssignsVisitor, DefUseChains
+from nbfix.parser.lark_parser import parse_to_tree
 
 
 def analyze(src):

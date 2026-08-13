@@ -34,6 +34,7 @@ src/nbfix/
   analyses/     the four analyses above, plus their abstract domains/states
   resource_utils/  local notebook/file loading
   serverextension/ jupyter_server REST extension exposing NBFix's events over HTTP
+  llm/          LLM-assisted bug detection, opt-in (see llm/README.md)
   analyzer.py   NBFix: the top-level per-notebook analysis driver
   cli.py, events.py, benchmarker.py
 tests/            pytest test suite + notebook fixtures

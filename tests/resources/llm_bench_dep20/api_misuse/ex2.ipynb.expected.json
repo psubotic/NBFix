@@ -1,0 +1,16 @@
+[
+ {
+  "cell_id": 22,
+  "path": [
+   22
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "ValueError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "negative dimensions are not allowed"
+   }
+  ]
+ }
+]

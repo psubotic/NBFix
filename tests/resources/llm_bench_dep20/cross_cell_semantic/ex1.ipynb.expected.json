@@ -1,0 +1,18 @@
+[
+ {
+  "cell_id": 23,
+  "path": [
+   21,
+   22,
+   23
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "AttributeError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "'int' object has no attribute 'append'"
+   }
+  ]
+ }
+]

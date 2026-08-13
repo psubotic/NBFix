@@ -1,0 +1,18 @@
+[
+ {
+  "cell_id": 2,
+  "path": [
+   0,
+   1,
+   2
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "TypeError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "list indices must be integers or slices, not str"
+   }
+  ]
+ }
+]

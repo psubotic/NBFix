@@ -1,0 +1,17 @@
+[
+ {
+  "cell_id": 24,
+  "path": [
+   23,
+   24
+  ],
+  "errors": [
+   {
+    "line": 3,
+    "label": "IndexError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "pop from empty list"
+   }
+  ]
+ }
+]

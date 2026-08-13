@@ -1,0 +1,18 @@
+[
+ {
+  "cell_id": 27,
+  "path": [
+   25,
+   26,
+   27
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "TypeError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "'int' object is not subscriptable"
+   }
+  ]
+ }
+]

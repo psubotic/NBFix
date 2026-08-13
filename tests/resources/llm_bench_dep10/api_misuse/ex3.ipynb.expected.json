@@ -1,0 +1,16 @@
+[
+ {
+  "cell_id": 11,
+  "path": [
+   11
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "ValueError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "must have exactly one of create/read/write/append mode"
+   }
+  ]
+ }
+]

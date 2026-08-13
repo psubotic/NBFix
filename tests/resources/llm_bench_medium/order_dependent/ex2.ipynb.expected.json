@@ -1,0 +1,17 @@
+[
+ {
+  "cell_id": 13,
+  "path": [
+   14,
+   13
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "NameError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "name 'helper' is not defined"
+   }
+  ]
+ }
+]

@@ -1,0 +1,17 @@
+[
+ {
+  "cell_id": 25,
+  "path": [
+   26,
+   25
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "NameError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "name 'items' is not defined"
+   }
+  ]
+ }
+]

@@ -1,0 +1,17 @@
+[
+ {
+  "cell_id": 26,
+  "path": [
+   25,
+   26
+  ],
+  "errors": [
+   {
+    "line": 2,
+    "label": "IndexError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "list index out of range"
+   }
+  ]
+ }
+]

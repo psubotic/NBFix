@@ -1,0 +1,17 @@
+[
+ {
+  "cell_id": 6,
+  "path": [
+   7,
+   6
+  ],
+  "errors": [
+   {
+    "line": 1,
+    "label": "NameError",
+    "error_type": "RUNTIME_ERROR",
+    "message": "name 'dataset' is not defined"
+   }
+  ]
+ }
+]

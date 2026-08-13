@@ -12,8 +12,8 @@ requires-python = ">=3.9"
 packages = ["jupyterlab_nbfix"]
 
 [tool.hatch.build.targets.wheel.shared-data]
-"install.json" = "share/jupyter/labextensions/nbfix/install.json"
-"jupyterlab_nbfix/labextension" = "share/jupyter/labextensions/nbfix"
+"install.json" = "share/jupyter/labextensions/jupyterlab-nbfix/install.json"
+"jupyterlab_nbfix/labextension" = "share/jupyter/labextensions/jupyterlab-nbfix"
 
 [tool.hatch.build.hooks.jupyter-builder]
 dependencies = ["hatch-jupyter-builder>=0.8.2"]

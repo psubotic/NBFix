@@ -63,7 +63,37 @@ class StaleCellAnalysis(Analysis):
                 init_as.impacted_variables[var] = 0
         return init_as
 
+    # Hard ceiling on inter-cell fixpoint recursion depth, enforced here
+    # rather than trusted from callers: inter_fixpoint_runner's branching
+    # factor is the number of cells sharing a variable with the notebook
+    # (can be dozens on a real notebook), so total recursive calls scale
+    # roughly as branching_factor**level - at level=5 this was observed to
+    # hit 184k+ recursive calls within 20s (still climbing) on a real
+    # notebook (see scripts/repro_stale_hang.py). update_abstract_state
+    # below was found calling _run_fixpoint_analysis without passing
+    # `level` at all, silently defaulting to the old level=20 - clamping
+    # here fixes both call paths at once instead of relying on every
+    # caller threading the right value through.
+    #
+    # level=2 was tried first but is too shallow to detect staleness
+    # through even a 2-hop dependency chain (x -> y -> z: editing x and
+    # re-running produced zero findings at level=2, correctly flagged z
+    # at level=3+). level=3 looked like the minimum needed based on that
+    # 2-hop check alone, but running the full test suite against it broke
+    # a pre-existing test (test_stale_cell_analysis.py::test_analyze_notebook,
+    # Test.ipynb) that depends on a 3-hop chain reaching cell 5 - level=3
+    # wasn't actually sufficient, it just happened to be sufficient for the
+    # one manual case checked at the time. level=4 is the minimum that
+    # passes the full existing suite, and still empirically fast on the
+    # dense real notebook this was fixing in the first place (9750 calls,
+    # 0.11s at level=4 vs 184k+/20s+ at level=5). The real fix is
+    # tightening CodeImpactAS.contains()/projection() pruning so depth
+    # doesn't have to trade off against branching-factor safety at all;
+    # this is a stopgap, not that fix.
+    MAX_LEVEL = 4
+
     def _run_fixpoint_analysis(self, notebook_IR, old_cell_IR=None, level=20, filename=""):
+        level = min(level, self.MAX_LEVEL)
         self._find_all_imports(notebook_IR)
         self.all_unbound_vars = get_all_unbound_vars(notebook_IR)
         init_as: CodeImpactAS = self._prepare_init_as(

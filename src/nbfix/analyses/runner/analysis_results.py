@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from copy import deepcopy
 from enum import Enum
 
@@ -75,7 +76,15 @@ class Result:
             error_json = f'{{"cell_id":{path_result.path[-1]},"errors":['
             for err in path_result.error_infos:
                 errty = err.error_type
-                error_json += f'{{"line":{err.line},"label":"{err.label}", "error_type":"{errty}", "message":"{err.error_message}"}},'
+                # label/error_message are free text (LLM-generated findings
+                # in particular can contain quotes, backslashes, newlines)
+                # - json.dumps() escapes them properly; raw f-string
+                # interpolation here previously produced invalid JSON for
+                # any message containing a `"`.
+                error_json += (
+                    f'{{"line":{err.line},"label":{json.dumps(err.label)}, '
+                    f'"error_type":{json.dumps(str(errty))}, "message":{json.dumps(err.error_message)}}},'
+                )
             error_json = error_json[:-1] + ']'
             if with_path:
                 error_json += f',"path":{path_result.path}'

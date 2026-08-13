@@ -32,8 +32,9 @@ from nbsynth.analyses.runner.analysis_results import Result
 from nbsynth.llm.client import LLMClient, LLMClientError
 from nbsynth.llm.context_builder import build_cell_context, build_subgraph_context, build_full_notebook_context
 from nbsynth.llm.prompts import SYSTEM_PROMPT, build_user_prompt
+from nbsynth.llm.notebook_loading import load_notebook_resilient
 from nbsynth.llm.result_mapping import map_findings_to_result
-from nbsynth.resource_utils.utils import load_notebook, read_json
+from nbsynth.resource_utils.utils import read_json
 
 _SCOPED_CONTEXT_BUILDERS = {
     "cell": build_cell_context,
@@ -276,13 +277,15 @@ def main():
     all_results = []
     with open(results_path, "w") as out_f:
         for notebook_name in _discover_eval_notebooks(args.eval_dir):
-            notebook_json = read_json(os.path.join(args.eval_dir, notebook_name))
             try:
-                notebook_IR = load_notebook(notebook_json["cells"])
+                notebook_json = read_json(os.path.join(args.eval_dir, notebook_name))
+                # Cells the parser can't handle yet (see ast_transformer.py)
+                # are skipped individually here, not the whole notebook -
+                # this still guards against the file itself being
+                # unreadable/corrupt JSON, a different failure than "one
+                # cell uses an unsupported construct".
+                notebook_IR = load_notebook_resilient(notebook_json["cells"])
             except Exception as exc:
-                # NBSynth's parser doesn't support every Python construct
-                # yet (see ast_transformer.py) - one notebook it can't
-                # parse must not abort the whole benchmark run.
                 print(f"Skipping {notebook_name}: failed to load ({exc})")
                 continue
             expected = _load_expected(args.eval_dir, notebook_name)

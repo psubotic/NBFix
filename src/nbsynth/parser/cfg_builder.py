@@ -77,10 +77,32 @@ _AUG_SYMBOLS = {
 }
 
 
+_COMPREHENSION_TYPES = (n.ListComp, n.SetComp, n.GeneratorExp, n.DictComp)
+
+
 def _collect_names(expr_node):
     if expr_node is None:
         return []
-    return [x.id for x in n.walk(expr_node) if isinstance(x, n.Name)]
+    # Names bound by a comprehension's own target (e.g. `x` in
+    # `[x*x for x in z]`) must not be reported as "used" - not just the
+    # Store-context target occurrence itself, but every Load-context
+    # reference to it inside the comprehension body too (`x*x` reads `x`
+    # twice). A ctx==Load filter alone doesn't catch this: those reads are
+    # genuinely Load-context, just not *free* variables. So this excludes
+    # by name identity instead, cell-wide, consistent with def_use.py's
+    # own deliberate scope-insensitivity (see its module docstring) rather
+    # than trying to scope the exclusion to just inside that comprehension.
+    bound_by_comprehensions = set()
+    for node in n.walk(expr_node):
+        if isinstance(node, _COMPREHENSION_TYPES):
+            for comp in node.generators:
+                bound_by_comprehensions.update(
+                    x.id for x in n.walk(comp.target) if isinstance(x, n.Name)
+                )
+    return [
+        x.id for x in n.walk(expr_node)
+        if isinstance(x, n.Name) and x.id not in bound_by_comprehensions
+    ]
 
 
 def _extract_lhs(target):

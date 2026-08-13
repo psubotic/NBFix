@@ -50,6 +50,15 @@ class TestDefUse(unittest.TestCase):
         _, av = analyze("x.y = 1\nz[0] = 2\n")
         self.assertEqual(av.defined_vars, {"x": 1, "z": 2})
 
+    def test_comprehension_loop_variable_is_bound_not_unbound(self):
+        # DefUseChains/AssignsVisitor walk the AST generically via _fields,
+        # with no node-type allowlist - a comprehension's Store-context
+        # target should be picked up as bound with zero special-casing
+        # needed in def_use.py itself.
+        duc, _ = analyze("y = [x * x for x in z]\n")
+        self.assertIn("z", duc.unbound_names)
+        self.assertNotIn("x", duc.unbound_names)
+
 
 if __name__ == "__main__":
     unittest.main()

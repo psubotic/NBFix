@@ -19,6 +19,17 @@ _CMP_SYMBOLS = {
 }
 
 
+def _unparse_comprehension(comp):
+    text = f"for {unparse(comp.target)} in {unparse(comp.iter)}"
+    for if_test in comp.ifs:
+        text += f" if {unparse(if_test)}"
+    return text
+
+
+def _unparse_generators(generators):
+    return " ".join(_unparse_comprehension(c) for c in generators)
+
+
 def unparse(node):
     if node is None:
         return ""
@@ -60,4 +71,12 @@ def unparse(node):
         return "{" + ", ".join(f"{unparse(k)}: {unparse(v)}" for k, v in zip(node.keys, node.values)) + "}"
     if isinstance(node, n.Starred):
         return "*" + unparse(node.value)
+    if isinstance(node, n.ListComp):
+        return f"[{unparse(node.elt)} {_unparse_generators(node.generators)}]"
+    if isinstance(node, n.SetComp):
+        return "{" + f"{unparse(node.elt)} {_unparse_generators(node.generators)}" + "}"
+    if isinstance(node, n.GeneratorExp):
+        return f"({unparse(node.elt)} {_unparse_generators(node.generators)})"
+    if isinstance(node, n.DictComp):
+        return "{" + f"{unparse(node.key)}: {unparse(node.value)} {_unparse_generators(node.generators)}" + "}"
     return node.__class__.__name__

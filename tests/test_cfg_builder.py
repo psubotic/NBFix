@@ -32,6 +32,18 @@ class TestCFGBuilder(unittest.TestCase):
         for a, b in zip(cfg.nodes, cfg.nodes[1:]):
             self.assertIn(b, a.outgoing)
 
+    def test_comprehension_assignment_excludes_bound_var_from_rhs_names(self):
+        # Regression test for the _collect_names fix: a comprehension's own
+        # bound target (x) must not be reported as a "used" name alongside
+        # the real free variable (z) - including the two Load-context uses
+        # of x inside the element expression `x * x`, not just its single
+        # Store-context occurrence as the loop target.
+        cfg = build_cfg("y = [x * x for x in z]\n")
+        node = cfg.nodes[1]
+        self.assertIsInstance(node, AssignmentNode)
+        self.assertEqual(node.left_hand_side, "y")
+        self.assertEqual(node.right_hand_side, ["z"])
+
     def test_call_produces_blackbox_and_assignment_call_node(self):
         cfg = build_cfg("x = df.head()\n")
         call_node, assign_node = cfg.nodes[1], cfg.nodes[2]

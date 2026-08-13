@@ -3,6 +3,7 @@ import unittest
 from nbsynth.parser import ast_nodes as n
 from nbsynth.parser.ast_transformer import build_ast
 from nbsynth.parser.lark_parser import parse_to_tree
+from nbsynth.resource_utils.utils import TEST_RES_PATH, load_notebook, read_json
 
 
 def parse(src):
@@ -210,11 +211,81 @@ class TestParserAST(unittest.TestCase):
         mod = parse("s = f'value is {x}'")
         self.assertEqual(mod.body[0].value.value, "value is {x}")
 
+    def test_list_comprehension(self):
+        mod = parse("y = [x * x for x in z]")
+        (stmt,) = mod.body
+        comp = stmt.value
+        self.assertIsInstance(comp, n.ListComp)
+        self.assertIsInstance(comp.elt, n.BinOp)
+        (generator,) = comp.generators
+        self.assertEqual(generator.target.id, "x")
+        self.assertIsInstance(generator.target.ctx, n.Store)
+        self.assertEqual(generator.iter.id, "z")
+        self.assertEqual(generator.ifs, [])
+
+    def test_list_comprehension_with_if_filter(self):
+        mod = parse("y = [x for x in z if x > 0]")
+        (stmt,) = mod.body
+        (generator,) = stmt.value.generators
+        (if_test,) = generator.ifs
+        self.assertIsInstance(if_test, n.Compare)
+
+    def test_set_comprehension(self):
+        mod = parse("s = {x for x in z}")
+        (stmt,) = mod.body
+        self.assertIsInstance(stmt.value, n.SetComp)
+
+    def test_dict_comprehension_with_tuple_target(self):
+        mod = parse("d = {k: v for k, v in z}")
+        (stmt,) = mod.body
+        comp = stmt.value
+        self.assertIsInstance(comp, n.DictComp)
+        (generator,) = comp.generators
+        self.assertIsInstance(generator.target, n.Tuple)
+        self.assertEqual([e.id for e in generator.target.elts], ["k", "v"])
+        self.assertTrue(all(isinstance(e.ctx, n.Store) for e in generator.target.elts))
+
+    def test_parenthesized_generator_expression(self):
+        mod = parse("g = (x for x in z)")
+        (stmt,) = mod.body
+        self.assertIsInstance(stmt.value, n.GeneratorExp)
+
+    def test_generator_expression_as_bare_call_argument(self):
+        mod = parse("total = sum(x for x in z)")
+        (stmt,) = mod.body
+        call = stmt.value
+        self.assertIsInstance(call, n.Call)
+        (arg,) = call.args
+        self.assertIsInstance(arg, n.GeneratorExp)
+
+    def test_plain_tuple_and_list_literals_unaffected_by_comprehension_support(self):
+        # Regression check: comprehension disambiguation in
+        # testlist_comp_tuple/testlist_comp_list must not misclassify a
+        # plain multi-element literal.
+        mod = parse("a = [1, 2, 3]\nb = (1, 2)\n")
+        self.assertIsInstance(mod.body[0].value, n.List)
+        self.assertEqual(len(mod.body[0].value.elts), 3)
+        self.assertIsInstance(mod.body[1].value, n.Tuple)
+        self.assertEqual(len(mod.body[1].value.elts), 2)
+
     def test_unsupported_construct_raises_clearly(self):
-        with self.assertRaises(NotImplementedError):
-            parse("y = [i for i in range(10)]")
+        # Comprehensions are implemented (see the comprehension tests
+        # below) - lambda remains a genuinely unsupported construct.
         with self.assertRaises(NotImplementedError):
             parse("f = lambda x: x + 1")
+
+    def test_victim_notebook_loads_without_raising(self):
+        # Regression test for the original bug report: this real-world
+        # notebook has a list comprehension (cell 68:
+        # `n_estimators = [int(x) for x in np.linspace(...)]`) that used to
+        # raise NotImplementedError and abort loading the whole notebook.
+        cells = read_json(TEST_RES_PATH + "victim.ipynb")["cells"]
+        notebook_IR = load_notebook(cells)
+        self.assertGreater(len(notebook_IR), 0)
+        comprehension_cell = next(
+            ir for ir in notebook_IR.values() if "n_estimators" in ir.cell_code
+        )
+        self.assertIsInstance(comprehension_cell.AST, n.Module)
 
 
 if __name__ == "__main__":

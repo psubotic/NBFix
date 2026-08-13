@@ -7,12 +7,16 @@ dispatch) so the traversal *pattern* is familiar, but every class here is our
 own -- nothing is imported from `ast` or `gast`, and nothing here is an
 instance of those modules' types.
 
-Not yet implemented (tracked, not silently dropped -- see parser/README.md
-once written): comprehensions, lambda, ternary `if/else` expressions, the
-walrus operator, decorators, async/await, f-string interpolation (an
-f-string currently round-trips as an opaque Constant, see notebook_python.lark),
-`del`/`assert`/`nonlocal`, set literals, match statements, and same-cell
-function-call inlining (calls are always treated as black-box in phase 1).
+Not yet implemented (tracked, not silently dropped -- see parser/README.md):
+lambda, ternary `if/else` expressions, the walrus operator, decorators,
+async/await, f-string interpolation (an f-string currently round-trips as
+an opaque Constant, see notebook_python.lark), `del`/`assert`/`nonlocal`,
+set literals, match statements, and same-cell function-call inlining
+(calls are always treated as black-box in phase 1). Comprehensions
+(list/set/dict, generator expressions) *are* implemented (`comprehension`,
+`ListComp`/`SetComp`/`DictComp`/`GeneratorExp` below) but only for a
+single `for` clause -- the grammar has no chained `for` support yet
+(`[x for x in a for y in b]`), see parser/README.md.
 """
 
 from collections import deque
@@ -271,6 +275,59 @@ class Dict(expr):
         super().__init__(**kw)
         self.keys = keys
         self.values = values
+
+
+class comprehension(AST):
+    """One `for ... in ... [if ...]*` clause of a comprehension. Mirrors
+    stdlib ast.comprehension's target/iter/ifs shape. `generators` on the
+    comprehension-expression classes below is a list of these for forward
+    compatibility with stdlib ast's shape, even though the grammar
+    currently only ever produces exactly one (no chained `for` clauses)."""
+
+    _fields = ("target", "iter", "ifs")
+
+    def __init__(self, target, iter, ifs=None, **kw):
+        super().__init__(**kw)
+        self.target = target
+        self.iter = iter
+        self.ifs = ifs or []
+
+
+class ListComp(expr):
+    _fields = ("elt", "generators")
+
+    def __init__(self, elt, generators, **kw):
+        super().__init__(**kw)
+        self.elt = elt
+        self.generators = generators
+
+
+class SetComp(expr):
+    _fields = ("elt", "generators")
+
+    def __init__(self, elt, generators, **kw):
+        super().__init__(**kw)
+        self.elt = elt
+        self.generators = generators
+
+
+class GeneratorExp(expr):
+    _fields = ("elt", "generators")
+
+    def __init__(self, elt, generators, **kw):
+        super().__init__(**kw)
+        self.elt = elt
+        self.generators = generators
+
+
+class DictComp(expr):
+    _fields = ("key", "value", "generators")
+
+    def __init__(self, key, value, generators, **kw):
+        super().__init__(**kw)
+        self.key = key
+        self.value = value
+        self.generators = generators
 
 
 class Constant(expr):

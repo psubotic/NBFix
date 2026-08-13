@@ -36,6 +36,20 @@ subscript access (including slicing), calls (positional/keyword/`*args`/
 definitions (including decorators), `return`/`raise`/`break`/`continue`/
 `pass`/`global`, list/tuple/dict literals, f-strings (see gap below).
 
+**Comprehensions** (list/set/dict, and generator expressions -
+`(x for x in y)`, `sum(x for x in y)`) are implemented
+(`ast_nodes.comprehension`/`ListComp`/`SetComp`/`DictComp`/`GeneratorExp`,
+built via `comp_for`/`comp_if`/`set_comp`/`dict_comp`/`genexpr_arg` in
+`ast_transformer.py`), for a **single `for` clause only** - the grammar's
+`comp_for` rule has no recursive second `comp_for`, so chained
+comprehensions (`[x for x in a for y in b]`) aren't expressible yet; that
+needs a grammar change, tracked as a separate follow-up, not the same gap.
+No new CFG node types were needed for this (see `cfg_builder.py`'s
+`_collect_names` for the one related fix: comprehension-bound names are
+now excluded from "used names," which matters once a Store-context name
+can appear nested inside the same expression subtree as free variables -
+previously never possible for any supported construct).
+
 ## Same-cell function-call inlining: reduced scope, TODO to broaden
 
 Implemented for a **reduced case only** (`CFGBuilder._inline_call` /
@@ -71,21 +85,63 @@ treated as black-box (`BBorBInode`), as before.
 
 ## Deferred (tracked, not dropped)
 
-- Comprehensions (list/set/dict/generator), `lambda`, ternary
-  `x if y else z`, the walrus operator (`:=`), `async`/`await`, `del`/
-  `assert`/`nonlocal`, dict/set unpacking (`**`/`*` inside a `{...}`
-  literal), PEP 570 positional-only params (`/` marker), `match`
-  statements. Hitting any of these raises `NotImplementedError` naming the
-  construct (`ast_transformer.py`'s `__default__`), not a silent misparse.
-- **f-strings are opaque literals**: `f"{x}"` round-trips as the literal
-  text `"{x}"` -- the interpolated expression is not parsed, so a name used
-  only inside an f-string won't be picked up by def-use analysis. The old
-  pipeline did walk into these (gast's `JoinedStr`/`FormattedValue`).
-- The `MUTATORS` rewrite (`lst.append(x)` treated like `lst += lst.append(x)`
-  so mutation propagates taint onto the receiver) isn't implemented.
-- Decorator call-arguments aren't preserved (the decorator name/attribute
-  chain is; e.g. `@app.route("/x")`'s `"/x"` argument is dropped) since
-  decorators aren't consumed by the CFG builder yet.
+Backlog, in the order we're planning to work through it (most
+notebook-real-world-impact first). Verified directly against
+`ast_transformer.py` + `notebook_python.lark`, not just this doc's own
+prior summary -- two items (bytes literals, bare set literals) were
+missing from here until this pass.
+
+Hard failures -- raise `NotImplementedError` naming the construct
+(`ast_transformer.py`'s `__default__`), not a silent misparse:
+
+- [x] ~~Comprehensions~~ -- done, see Implemented above.
+- [ ] `lambda` -- flagged P1 in the grammar, "very common in `.apply()`".
+  **Next priority** now that comprehensions are done.
+- [ ] Ternary expressions (`x if y else z`) -- P1.
+- [ ] Bare set literals (`{1, 2, 3}`) -- distinct from set *comprehensions*
+  above; fails even with no `for` involved (`dict_or_set_maker`'s
+  `set_literal` alias has no transformer method).
+- [ ] Walrus operator (`:=`) -- P2.
+- [ ] `assert` -- P1.
+- [ ] `del` -- P1.
+- [ ] `nonlocal` -- P2.
+- [ ] `async`/`await` (`async def`/`async for`/`async with`) -- P2.
+- [ ] Dict unpacking in a literal (`{**a, **b}`) -- P2.
+
+Parse-level failures -- the grammar has no rule at all yet, so these are a
+raw Lark parse exception, not today's clean `NotImplementedError`; need a
+grammar change before a transformer method makes sense:
+
+- [ ] PEP 570 positional-only params (`def f(x, /, y): ...`).
+- [ ] `match`/`case` structural pattern matching (PEP 634).
+- [ ] `type` alias statements (PEP 695).
+- [ ] Exception groups (`except*`).
+
+Silent semantic gaps -- parses successfully, produces an approximated
+result, **no error at all**. Arguably higher-risk than the hard failures
+above precisely because nothing signals the analysis is working off wrong
+data:
+
+- [ ] **f-strings are opaque literals**: `f"{x}"` round-trips as the
+  literal text `"{x}"` -- the interpolated expression is never parsed, so a
+  name used only inside an f-string won't be picked up by def-use analysis.
+  The old pipeline did walk into these (gast's `JoinedStr`/`FormattedValue`).
+- [ ] **Single-element tuple with trailing comma silently loses its
+  tuple-ness**: `f = (1,)` parses as `Constant(value=1)`, i.e. plain `1`,
+  not `Tuple(elts=[1])` -- found incidentally while implementing
+  comprehensions (`testlist_comp_tuple`'s `len(children) == 1` branch can't
+  distinguish "one parenthesized expression" from "one element + trailing
+  comma," since Lark's `maybe_placeholders` swallows the literal `","`
+  without leaving a trace). Not a comprehension bug and not touched by
+  that work - flagged here as newly discovered, unrelated, still open.
+- [ ] **Byte-string literals are kept as `str`, not `bytes`**
+  (`_parse_string_literal` in `ast_transformer.py`).
+- [ ] Decorator call-arguments aren't preserved (the decorator
+  name/attribute chain is; e.g. `@app.route("/x")`'s `"/x"` argument is
+  dropped) since decorators aren't consumed by the CFG builder yet.
+- [ ] The `MUTATORS` rewrite (`lst.append(x)` treated like
+  `lst += lst.append(x)` so mutation propagates taint onto the receiver)
+  isn't implemented.
 
 ## Known simplifications (not gaps, but worth knowing about)
 

@@ -3,11 +3,16 @@ Lark parse tree -> ast_nodes.* transformer.
 
 Only the grammar rules needed for the P0 (and a few easy P1) constructs have
 an explicit method here -- see notebook_python.lark's priority tags. Anything
-else (comprehensions, lambda, ternary `if/else`, walrus, decorleaked call
-args, async, del/assert/nonlocal, f-string interpolation, dict/set unpacking,
-same-cell function-call inlining) hits `__default__` below and raises
-`NotImplementedError` naming the construct, rather than silently producing a
-wrong tree. That list is the tracked backlog for the next increment.
+else (lambda, ternary `if/else`, walrus, decorated call args, async,
+del/assert/nonlocal, f-string interpolation, dict/set unpacking, bare set
+literals, same-cell function-call inlining) hits `__default__` below and
+raises `NotImplementedError` naming the construct, rather than silently
+producing a wrong tree. That list is the tracked backlog for the next
+increment -- see parser/README.md.
+
+Comprehensions (list/set/dict, generator expressions) *are* implemented,
+via `comp_for`/`comp_if`/`set_comp`/`dict_comp`/`genexpr_arg` below, but
+only for a single `for` clause (the grammar has no chained-`for` support).
 """
 
 import codecs
@@ -453,6 +458,10 @@ class ASTTransformer(Transformer):
     def dstar_arg(self, meta, children):
         return ("dstar", children[0])
 
+    def genexpr_arg(self, meta, children):
+        elt, comp = children
+        return ("pos", n.GeneratorExp(elt=elt, generators=[comp], lineno=meta.line))
+
     def arglist(self, meta, children):
         args, keywords = [], []
         for kind, value in children:
@@ -493,25 +502,53 @@ class ASTTransformer(Transformer):
         inner = children[0]
         if inner is None:
             return n.Tuple(elts=[], ctx=n.Load(), lineno=meta.line)
+        # A parenthesized generator expression `(x for x in y)` already
+        # comes back as a bare GeneratorExp from testlist_comp_tuple below -
+        # passed through as-is, correctly not wrapped as a Tuple.
         return inner
 
     def testlist_comp_tuple(self, meta, children):
+        if len(children) == 2 and isinstance(children[1], n.comprehension):
+            elt, comp = children
+            return n.GeneratorExp(elt=elt, generators=[comp], lineno=meta.line)
         if len(children) == 1:
             return children[0]
         return n.Tuple(elts=children, ctx=n.Load(), lineno=meta.line)
 
     def list_atom(self, meta, children):
         inner = children[0]
+        if isinstance(inner, n.ListComp):
+            return inner
         return n.List(elts=(inner if inner is not None else []), ctx=n.Load(), lineno=meta.line)
 
     def testlist_comp_list(self, meta, children):
+        if len(children) == 2 and isinstance(children[1], n.comprehension):
+            elt, comp = children
+            return n.ListComp(elt=elt, generators=[comp], lineno=meta.line)
         return children
+
+    def comp_for(self, meta, children):
+        target, iter_, ifs = children
+        _set_ctx(target, n.Store)
+        return n.comprehension(target=target, iter=iter_, ifs=ifs or [])
+
+    def comp_if(self, meta, children):
+        test, chained = children
+        return [test] + (chained or [])
 
     def dict_or_set_atom(self, meta, children):
         inner = children[0]
         if inner is None:
             return n.Dict(keys=[], values=[], lineno=meta.line)
         return inner
+
+    def set_comp(self, meta, children):
+        elt, comp = children
+        return n.SetComp(elt=elt, generators=[comp], lineno=meta.line)
+
+    def dict_comp(self, meta, children):
+        key, value, comp = children
+        return n.DictComp(key=key, value=value, generators=[comp], lineno=meta.line)
 
     def dict_pair(self, meta, children):
         if len(children) == 2:

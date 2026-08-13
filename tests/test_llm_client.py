@@ -17,9 +17,10 @@ def _make_dummy_connection_error():
     return openai.APIConnectionError(request=request)
 
 
-def _make_completion_response(content: str):
+def _make_completion_response(content: str, usage=None):
     response = MagicMock()
     response.choices = [MagicMock(message=MagicMock(content=content))]
+    response.usage = usage
     return response
 
 
@@ -65,6 +66,38 @@ class TestLLMClient(unittest.TestCase):
         client = LLMClient(base_url="http://localhost:11434/v1", model="qwen2.5-coder:14b")
         with self.assertRaises(LLMClientError):
             client.chat_json("system prompt", "user prompt")
+
+    @patch("nbsynth.llm.client.openai.OpenAI")
+    def test_chat_json_with_usage_returns_findings_and_token_counts(self, mock_openai_cls):
+        mock_client = mock_openai_cls.return_value
+        usage = MagicMock(prompt_tokens=100, completion_tokens=20, total_tokens=120)
+        mock_client.chat.completions.create.return_value = _make_completion_response(
+            '{"findings": []}', usage=usage
+        )
+
+        client = LLMClient(base_url="http://localhost:11434/v1", model="qwen2.5-coder:14b")
+        findings, usage_dict = client.chat_json_with_usage("system prompt", "user prompt")
+
+        self.assertEqual(findings, {"findings": []})
+        self.assertEqual(
+            usage_dict,
+            {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+        )
+
+    @patch("nbsynth.llm.client.openai.OpenAI")
+    def test_chat_json_with_usage_handles_missing_usage(self, mock_openai_cls):
+        mock_client = mock_openai_cls.return_value
+        mock_client.chat.completions.create.return_value = _make_completion_response(
+            '{"findings": []}', usage=None
+        )
+
+        client = LLMClient(base_url="http://localhost:11434/v1", model="qwen2.5-coder:14b")
+        _, usage_dict = client.chat_json_with_usage("system prompt", "user prompt")
+
+        self.assertEqual(
+            usage_dict,
+            {"prompt_tokens": None, "completion_tokens": None, "total_tokens": None},
+        )
 
 
 if __name__ == "__main__":

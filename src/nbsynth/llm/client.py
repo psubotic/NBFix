@@ -32,11 +32,8 @@ class LLMClient:
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self._model = model
 
-    def chat_json(self, system_prompt: str, user_prompt: str) -> dict:
+    def _create_completion(self, system_prompt: str, user_prompt: str):
         """
-        Sends a chat completion request and returns the parsed JSON
-        response body as a dict.
-
         Requests {"type": "json_object"} mode rather than a fuller
         schema-constrained response_format - Ollama's OpenAI-compatible
         endpoint has a known compatibility gap with the json_schema
@@ -44,7 +41,7 @@ class LLMClient:
         result-mapping layer) instead of relied on here.
         """
         try:
-            response = self._client.chat.completions.create(
+            return self._client.chat.completions.create(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -59,9 +56,32 @@ class LLMClient:
         except openai.APIError as exc:
             raise LLMClientError(f"LLM request failed: {exc}") from exc
 
-        content = response.choices[0].message.content
-
+    @staticmethod
+    def _parse_content(content) -> dict:
         try:
             return json.loads(content)
         except (json.JSONDecodeError, TypeError) as exc:
             raise LLMClientError(f"LLM response was not valid JSON: {exc}") from exc
+
+    def chat_json(self, system_prompt: str, user_prompt: str) -> dict:
+        """Sends a chat completion request and returns the parsed JSON
+        response body as a dict."""
+        response = self._create_completion(system_prompt, user_prompt)
+        return self._parse_content(response.choices[0].message.content)
+
+    def chat_json_with_usage(self, system_prompt: str, user_prompt: str) -> tuple[dict, dict]:
+        """
+        Same as chat_json, but also returns token usage - for the
+        benchmarking harness's cost/latency comparisons, not needed by
+        production callers (DetectBugsEvent uses chat_json).
+        """
+        response = self._create_completion(system_prompt, user_prompt)
+        findings = self._parse_content(response.choices[0].message.content)
+
+        usage = response.usage
+        usage_dict = {
+            "prompt_tokens": usage.prompt_tokens if usage else None,
+            "completion_tokens": usage.completion_tokens if usage else None,
+            "total_tokens": usage.total_tokens if usage else None,
+        }
+        return findings, usage_dict

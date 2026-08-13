@@ -44,14 +44,22 @@ class EventHandler(APIHandler):
             self._respond_error(400, str(exc))
             return
 
-        result = nbsynth.execute_event(event)
+        try:
+            result = nbsynth.execute_event(event)
 
-        if event_name == "open_notebook":
-            # Bootstrap the default set of active analyses so the first
-            # response already carries diagnostics, mirroring what the
-            # VS Code prototype did via a follow-up add_active_analyses call.
-            analyses_event = build_event("add_active_analyses", {"active_analyses": DEFAULT_ANALYSES})
-            result = nbsynth.execute_event(analyses_event)
+            if event_name == "open_notebook":
+                # Bootstrap the default set of active analyses so the first
+                # response already carries diagnostics, mirroring what the
+                # VS Code prototype did via a follow-up add_active_analyses call.
+                analyses_event = build_event("add_active_analyses", {"active_analyses": DEFAULT_ANALYSES})
+                result = nbsynth.execute_event(analyses_event)
+        except Exception as exc:
+            # Catches failures that only surface at execution time rather
+            # than at dispatch (e.g. an unreachable local LLM endpoint for
+            # detect_bugs) - one event failing this way must not crash the
+            # request with an unhandled-exception response.
+            self._respond_error(500, f"Event execution failed: {exc}")
+            return
 
         if event_name == "close_notebook":
             sessions.close(notebook_id)
@@ -60,7 +68,12 @@ class EventHandler(APIHandler):
 
     def _respond_success(self, result):
         diagnostics = []
-        if result is not None:
+        # Result.dumps() returns '' (not '[]') when there are no findings -
+        # json.loads('') would raise, so only attempt to parse when there's
+        # actually something to parse. A clean "no findings" result is the
+        # common case for detect_bugs (most checks won't find a bug), not
+        # an edge case to special-case away.
+        if result is not None and result.path_results:
             try:
                 diagnostics = json.loads(result.dumps())
             except (ValueError, AttributeError):

@@ -14,6 +14,30 @@ class InvalidEventError(ValueError):
     pass
 
 
+def _build_detect_bugs_event(params):
+    # Lazy import: nbsynth.llm.detect_bugs_event (via config.py -> client.py)
+    # imports openai, which the base/jupyter packages must never depend on
+    # at module load time. Only import it once this specific event is
+    # actually requested, and turn "not installed" into the same
+    # InvalidEventError every other bad-request case already produces.
+    try:
+        from ..llm.detect_bugs_event import DetectBugsEvent
+    except ImportError as exc:
+        raise InvalidEventError(
+            "LLM bug detection is not installed - pip install nbsynth[llm]"
+        ) from exc
+
+    scope = params.get("scope", "full")
+    if scope not in ("cell", "subgraph", "full"):
+        raise InvalidEventError(f"Invalid scope: {scope!r}")
+
+    cell_index = params.get("cell_index")
+    if scope != "full" and cell_index is None:
+        raise InvalidEventError(f"cell_index is required for scope={scope!r}")
+
+    return DetectBugsEvent(scope, cell_index)
+
+
 _EVENT_BUILDERS = {
     "open_notebook": lambda params: OpenNotebookEvent(params["notebook_json"]),
     "run_cell": lambda params: RunCellEvent(params["cell_index"]),
@@ -25,6 +49,7 @@ _EVENT_BUILDERS = {
         str(params["new_code"]), int(params["cell_index"]), bool(params["with_result"])
     ),
     "close_notebook": lambda params: CloseNotebookEvent(),
+    "detect_bugs": _build_detect_bugs_event,
 }
 
 

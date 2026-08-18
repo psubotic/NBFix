@@ -62,6 +62,44 @@ def detect_bugs(filename, notebook, scope, cell_index, context_mode="deps", find
     return result.dumps(True)
 
 
+def detect_stale_cells(filename, notebook, cell_index):
+    """
+    Runs LLM-assisted stale-cell detection - an opt-in alternative to
+    the deterministic StaleCellAnalysis (-a "Stale Cells Analysis"), not
+    something layered on top of it. Like detect_bugs, imports from .llm
+    are lazy so plain `nbfix -f ... -a ...` invocations never depend on
+    the (optional) llm extra.
+
+    Loading a notebook fresh from a file leaves every cell's
+    last_ran_code empty (see analyzer.py's load_notebook) - the same
+    characteristic the existing deterministic STALE analysis already has
+    when driven from this CLI (run_analyses compares against that same
+    empty baseline), so this isn't a new limitation specific to the LLM
+    path. Meaningful edit-vs-original comparisons come from a live
+    session (RunCellEvent/ChangeCellCodeEvent, as the JupyterLab server
+    extension drives) where last_ran_code reflects real prior execution -
+    DetectStaleCellsEvent's own docstring explains why original_code has
+    to be captured *before* that real re-run happens, not read internally.
+    """
+    try:
+        from .llm.client import LLMClientError
+        from .llm.detect_stale_cells_event import DetectStaleCellsEvent
+    except ImportError as exc:
+        raise RuntimeError(
+            "LLM stale-cell detection is not installed - pip install nbfix[llm]"
+        ) from exc
+
+    code_nbfix = _load_notebook(filename, notebook)
+    original_code = code_nbfix.notebook_IR[cell_index].last_ran_code
+    event = DetectStaleCellsEvent(cell_index, original_code)
+    try:
+        result = code_nbfix.execute_event(event)
+    except LLMClientError as exc:
+        raise RuntimeError(str(exc)) from exc
+
+    return result.dumps(True)
+
+
 def _build_parser() -> ArgumentParser:
     parser = ArgumentParser(description="NBFix version 1.0 ")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -93,6 +131,12 @@ def _build_parser() -> ArgumentParser:
         help='Deterministic analysis names to run and feed the LLM as extra '
              'context, for --detect-bugs.',
     )
+    parser.add_argument(
+        "--detect-stale-cells", action="store_true",
+        help='Run LLM-assisted stale-cell detection instead of the deterministic '
+             '"Stale Cells Analysis" (-a). Requires the llm extra (pip install '
+             'nbfix[llm]). Requires --cell.',
+    )
     return parser
 
 
@@ -108,6 +152,16 @@ def main():
                 args.filename, args.notebook, args.scope, args.cell,
                 args.context_mode, args.finding_types,
             )
+        except RuntimeError as exc:
+            raise SystemExit(f"Error: {exc}")
+        print(results)
+        return
+
+    if args.detect_stale_cells:
+        if args.cell is None:
+            parser.error("--cell is required for --detect-stale-cells")
+        try:
+            results = detect_stale_cells(args.filename, args.notebook, args.cell)
         except RuntimeError as exc:
             raise SystemExit(f"Error: {exc}")
         print(results)

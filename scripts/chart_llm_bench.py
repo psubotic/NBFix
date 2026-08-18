@@ -40,7 +40,21 @@ import matplotlib.pyplot as plt
 
 MODELS = ["qwen1.5b", "qwen7b", "qwen14b"]
 CLASSES = ["api_misuse", "cross_cell_logic", "cross_cell_semantic", "order_dependent"]
-CONTEXT_COLORS = {"none": "#d97757", "deps": "#5b8dd6"}
+# Preferred left-to-right order when multiple context configs are present
+# for a tier - only those actually found in a given tier's data get
+# plotted, so a 2-condition tier (none/deps) and a 3-condition one
+# (none/deps/deps+isolated) both render correctly without extra config.
+CONTEXT_CONFIG_ORDER = [
+    "none", "deps", "deps+isolated", "deps+findings", "deps+types",
+    "deps-pruned", "deps-labeled", "deps-fixpoint",
+]
+CONTEXT_COLORS = {
+    "none": "#d97757", "deps": "#5b8dd6",
+    "deps+isolated": "#6bb583", "deps+findings": "#b58ee6",
+    "deps+types": "#e0b13c",
+    "deps-pruned": "#7a5195", "deps-labeled": "#ef5675",
+    "deps-fixpoint": "#2ca58d",
+}
 CLEAN_NOTEBOOK_EXCLUDE = {"clean1.ipynb"}
 
 
@@ -76,19 +90,27 @@ _METRIC_LABELS = {
 
 
 def make_chart(groups: dict, metric: str, tier_label: str, output_path: str) -> None:
+    contexts_present = {ctx for (_, _, ctx) in groups}
+    contexts = [c for c in CONTEXT_CONFIG_ORDER if c in contexts_present]
+    if not contexts:
+        contexts = sorted(contexts_present)
+
     fig, axes = plt.subplots(1, len(MODELS), figsize=(15, 4.5), sharey=True)
     metric_label = _METRIC_LABELS[metric]
     fig.suptitle(f"{tier_label} tier — {metric_label}", fontsize=14)
 
     x = range(len(CLASSES))
-    width = 0.35
+    n = len(contexts)
+    width = 0.8 / n
 
     for ax, model in zip(axes, MODELS):
-        none_vals = [_avg(groups[(model, cls, "none")][metric]) for cls in CLASSES]
-        deps_vals = [_avg(groups[(model, cls, "deps")][metric]) for cls in CLASSES]
-
-        ax.bar([i - width / 2 for i in x], none_vals, width, label="none", color=CONTEXT_COLORS["none"])
-        ax.bar([i + width / 2 for i in x], deps_vals, width, label="deps", color=CONTEXT_COLORS["deps"])
+        for i, ctx in enumerate(contexts):
+            vals = [_avg(groups[(model, cls, ctx)][metric]) for cls in CLASSES]
+            offset = (i - (n - 1) / 2) * width
+            ax.bar(
+                [xi + offset for xi in x], vals, width, label=ctx,
+                color=CONTEXT_COLORS.get(ctx, "#999999"),
+            )
 
         ax.set_title(model)
         ax.set_xticks(list(x))

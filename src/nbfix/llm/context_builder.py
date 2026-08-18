@@ -1,32 +1,23 @@
 from dataclasses import dataclass, field
 
+from ..analyses.dependency_analysis import build_fixpoint_dependency_edges
 from ..analyses.runner.analysis_results import ErrorInfo, Result
 
-
-def build_dependency_edges(notebook_IR) -> dict[int, set[int]]:
-    """
-    Returns cell_id -> set of cell_ids it depends on.
-
-    Walks cells in id order tracking a running "last cell to define this
-    name" map; a cell depends on cell X if it reads a name whose most
-    recent definition, at that point in the walk, was in cell X. There is
-    no existing cross-cell def-use resolver in the codebase to reuse here -
-    parser/def_use.py only computes intra-cell info.
-    """
-    last_definer: dict[str, int] = {}
-    edges: dict[int, set[int]] = {}
-
-    for cell_id in sorted(notebook_IR):
-        ir = notebook_IR[cell_id]
-        edges[cell_id] = {
-            last_definer[name]
-            for name in ir.UDA.unbound_final
-            if name in last_definer
-        }
-        for name in ir.UDA.defined_vars:
-            last_definer[name] = cell_id
-
-    return edges
+# build_dependency_edges used to be its own single, ID-ordered forward
+# pass (a running "last cell to define this name" map, walked in
+# ascending cell_id order). That's just wrong: it silently assumes cell
+# ID order is execution order, which real notebooks don't guarantee (a
+# cell can read a name only defined in a *later* cell - NBFix's own
+# `order_dependent` bug class lives exactly in that gap, and the old
+# implementation was structurally blind to it - see experiments.md
+# findings 10-11). build_fixpoint_dependency_edges computes the same
+# dict[int, set[int]] shape correctly - via order-independent fixpoint
+# propagation (analyses/dependency_analysis.py's docstring has the full
+# rationale, grounded in the NBLyzer paper's actual dependency-graph
+# definition) - and was verified to strictly preserve every edge the old
+# pass found while additionally finding the ones it missed, so there's no
+# reason to keep the old, incomplete version around as an option.
+build_dependency_edges = build_fixpoint_dependency_edges
 
 
 def _connected_component(edges: dict[int, set[int]], cell_id: int) -> set[int]:
@@ -90,10 +81,16 @@ def _findings_for_cells(findings: list[ErrorInfo], cell_ids) -> list[ErrorInfo]:
     return [f for f in findings if f.cell_id in cell_id_set]
 
 
-def build_cell_context(notebook_IR, cell_id: int, deterministic_findings=None) -> BugDetectionContext:
+def build_cell_context(notebook_IR, cell_id: int, deterministic_findings=None, dependency_edges=None) -> BugDetectionContext:
     """Just the target cell's code, plus its own dependency edges as
-    structural summary - no neighbor code included."""
-    edges = build_dependency_edges(notebook_IR)
+    structural summary - no neighbor code included.
+
+    dependency_edges, if given, overrides the real build_dependency_edges
+    output entirely - an escape hatch (mirrors DetectBugsEvent's
+    extra_findings) for benchmarking an alternative edge set, e.g.
+    analyses/type_shape_analysis.py's build_pruned_dependency_edges,
+    without wiring a whole new context_mode into product code."""
+    edges = dependency_edges if dependency_edges is not None else build_dependency_edges(notebook_IR)
     ir = notebook_IR[cell_id]
     return BugDetectionContext(
         target_cell_ids=[cell_id],
@@ -103,10 +100,11 @@ def build_cell_context(notebook_IR, cell_id: int, deterministic_findings=None) -
     )
 
 
-def build_subgraph_context(notebook_IR, cell_id: int, deterministic_findings=None) -> BugDetectionContext:
+def build_subgraph_context(notebook_IR, cell_id: int, deterministic_findings=None, dependency_edges=None) -> BugDetectionContext:
     """Full code for every cell in the target cell's connected component
-    (transitive dependencies and dependents), not just the target cell."""
-    edges = build_dependency_edges(notebook_IR)
+    (transitive dependencies and dependents), not just the target cell.
+    dependency_edges: see build_cell_context's docstring."""
+    edges = dependency_edges if dependency_edges is not None else build_dependency_edges(notebook_IR)
     component = sorted(_connected_component(edges, cell_id))
     return BugDetectionContext(
         target_cell_ids=[cell_id],
@@ -119,9 +117,10 @@ def build_subgraph_context(notebook_IR, cell_id: int, deterministic_findings=Non
     )
 
 
-def build_full_notebook_context(notebook_IR, deterministic_findings=None) -> BugDetectionContext:
-    """Every cell's code and the full dependency graph."""
-    edges = build_dependency_edges(notebook_IR)
+def build_full_notebook_context(notebook_IR, deterministic_findings=None, dependency_edges=None) -> BugDetectionContext:
+    """Every cell's code and the full dependency graph.
+    dependency_edges: see build_cell_context's docstring."""
+    edges = dependency_edges if dependency_edges is not None else build_dependency_edges(notebook_IR)
     all_ids = sorted(notebook_IR)
     return BugDetectionContext(
         target_cell_ids=all_ids,

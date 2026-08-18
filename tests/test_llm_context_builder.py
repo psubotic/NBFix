@@ -36,13 +36,26 @@ class TestBuildDependencyEdges(unittest.TestCase):
         edges = build_dependency_edges(notebook_IR)
         self.assertEqual(edges, {0: set(), 1: {0}, 2: {1}})
 
-    def test_redefinition_updates_last_definer(self):
+    def test_redefinition_keeps_every_possible_definer(self):
+        """
+        build_dependency_edges is order-independent (see
+        analyses/dependency_analysis.py's docstring) - it doesn't assume
+        a single canonical "last definer in ID order" the way the old,
+        now-removed single-pass implementation did. Both cell 0 and cell
+        1 are legitimate candidate sources for the x cell 2 reads,
+        depending on which execution order actually ran: a real user
+        could run cell 0 then cell 2 without ever running cell 1.
+        """
         notebook_IR = make_notebook(
             {0: "x = 1", 1: "x = 2", 2: "y = x + 1"}
         )
         edges = build_dependency_edges(notebook_IR)
-        # cell 2 uses x, which was last (re)defined in cell 1, not cell 0.
-        self.assertEqual(edges[2], {1})
+        self.assertEqual(edges[2], {0, 1})
+
+    def test_finds_a_backward_edge_the_old_id_ordered_pass_could_not(self):
+        notebook_IR = make_notebook({0: "y = x + 1", 1: "x = 1"})
+        edges = build_dependency_edges(notebook_IR)
+        self.assertEqual(edges[0], {1})
 
 
 class TestBuildCellContext(unittest.TestCase):

@@ -1,3 +1,4 @@
+import { Notification } from '@jupyterlab/apputils';
 import { Cell, ICellModel } from '@jupyterlab/cells';
 import { IObservableList } from '@jupyterlab/observables';
 import { NotebookActions, NotebookPanel } from '@jupyterlab/notebook';
@@ -10,6 +11,39 @@ const CHANGE_DEBOUNCE_MS = 500;
 // tracked in NBFix's notebook_IR, so newly added cells are always
 // reported as kind 2 (code) regardless of their actual cell type.
 const CODE_CELL_KIND = 2;
+
+// Matches constants.py's exact string values - same duplicated-but-
+// exact-literal precedent as CODE_CELL_KIND above. These four are real
+// NBFix.all_analyses entries the backend's active_analyses list
+// understands (via add_active_analyses); LLM_STALE_KEY is not - it has
+// no backend registry entry at all, it's a frontend-only flag gating
+// whether detect_stale_cells_llm also gets called (see
+// _onCellExecuted). Both kinds are presented together in the same
+// "Choose Active Analyses" picker (index.ts) since from the user's
+// perspective they're both just "an analysis I can turn on or off",
+// even though only the first four round-trip through the backend's own
+// analysis-toggle mechanism.
+export const DATA_LEAK_KEY = 'Data Leak Analysis';
+export const STALE_KEY = 'Stale Cells Analysis';
+export const IDLE_KEY = 'Idle Cells Analysis';
+export const ISOLATED_KEY = 'Isolated Cells Analysis';
+export const LLM_STALE_KEY = 'llm_stale';
+
+const DEFAULT_ANALYSES = [DATA_LEAK_KEY, STALE_KEY, IDLE_KEY, ISOLATED_KEY];
+
+export interface IAnalysisOption {
+  key: string;
+  label: string;
+}
+
+// Order matters here - it's the order the picker dialog lists them in.
+export const ANALYSIS_OPTIONS: IAnalysisOption[] = [
+  { key: DATA_LEAK_KEY, label: 'Data Leakage' },
+  { key: STALE_KEY, label: 'Stale Cells (Algorithmic)' },
+  { key: IDLE_KEY, label: 'Idle Cells' },
+  { key: ISOLATED_KEY, label: 'Isolated Cells' },
+  { key: LLM_STALE_KEY, label: 'Stale Cells (LLM)' }
+];
 
 /**
  * Merges two diagnostic sets by cell_id, concatenating each cell's errors.
@@ -55,10 +89,52 @@ export class NotebookSessionManager {
   private _watched = new WeakSet<ICellModel>();
   private _deterministicDiagnostics: INBFixDiagnostic[] = [];
   private _llmDiagnostics: INBFixDiagnostic[] = [];
+  private _llmStaleDiagnostics: INBFixDiagnostic[] = [];
+  private _activeAnalyses = new Set<string>(DEFAULT_ANALYSES);
+  private _llmStaleEnabled = false;
+  private _llmStaleWarned = false;
+  // Per-cell "code this cell was last confirmed to have actually run
+  // with" - the frontend's own copy of what the backend's
+  // last_ran_code tracks, kept separately because DetectStaleCellsEvent
+  // needs the pre-run value captured *before* run_cell fires (which
+  // updates the backend's own last_ran_code as part of the same call -
+  // see that event's docstring for why reading it server-side after the
+  // fact doesn't work). Keyed by cell model id (stable across
+  // reordering), not position.
+  private _lastConfirmedCode = new Map<string, string>();
 
   constructor(panel: NotebookPanel) {
     this._panel = panel;
     this._notebookId = panel.context.path;
+  }
+
+  /** Current on/off state for every option ANALYSIS_OPTIONS lists - for populating the picker dialog. */
+  get activeAnalyses(): Set<string> {
+    const current = new Set(this._activeAnalyses);
+    if (this._llmStaleEnabled) {
+      current.add(LLM_STALE_KEY);
+    }
+    return current;
+  }
+
+  /**
+   * Applies a new selection from the "Choose Active Analyses" picker.
+   * The four deterministic keys round-trip through the backend's real
+   * active_analyses list (add_active_analyses fully *replaces* it, not
+   * merges - the full resulting set is always sent, matching
+   * AddActiveAnalysesEvent's own semantics). LLM_STALE_KEY never reaches
+   * the backend at all - it only gates whether _onCellExecuted also
+   * calls detect_stale_cells_llm going forward.
+   */
+  async setActiveAnalyses(next: Set<string>): Promise<void> {
+    const deterministic = [...next].filter(key => key !== LLM_STALE_KEY);
+    this._activeAnalyses = new Set(deterministic);
+    this._llmStaleEnabled = next.has(LLM_STALE_KEY);
+
+    const response = await postEvent('add_active_analyses', this._notebookId, {
+      active_analyses: deterministic
+    });
+    this._setDeterministicDiagnostics(response.diagnostics);
   }
 
   async start(): Promise<void> {
@@ -127,25 +203,62 @@ export class NotebookSessionManager {
 
     const handle = window.setTimeout(() => {
       this._pendingEdits.delete(model.id);
-      const index = this._panel.content.widgets.indexOf(cellWidget);
-      if (index === -1) {
-        // Cell was removed before the debounce fired.
-        return;
-      }
-      void postEvent('change_cell', this._notebookId, {
-        new_code: model.sharedModel.getSource(),
-        cell_index: index,
-        with_result: true
-      }).then(response => {
-        // The edited cell's code changed, so any prior LLM finding about
-        // it (or cells connected to it) may no longer apply - drop the
-        // whole LLM set rather than show a possibly-stale AI finding.
-        this._llmDiagnostics = [];
-        this._setDeterministicDiagnostics(response.diagnostics);
-      });
+      void this._sendChangeCell(cellWidget);
     }, CHANGE_DEBOUNCE_MS);
 
     this._pendingEdits.set(model.id, handle);
+  }
+
+  /**
+   * Posts the current in-editor source for one cell as a change_cell event
+   * and applies the resulting diagnostics. Shared by the debounce timeout
+   * (_scheduleChangeCell) and _flushPendingEdit (called synchronously
+   * before execution instead of waiting out the debounce - see its
+   * docstring for why).
+   */
+  private async _sendChangeCell(cellWidget: Cell): Promise<void> {
+    const index = this._panel.content.widgets.indexOf(cellWidget);
+    if (index === -1) {
+      // Cell was removed before this fired.
+      return;
+    }
+    const response = await postEvent('change_cell', this._notebookId, {
+      new_code: cellWidget.model.sharedModel.getSource(),
+      cell_index: index,
+      with_result: true
+    });
+    // The edited cell's code changed, so any prior LLM finding about it
+    // (or cells connected to it) may no longer apply - drop the whole LLM
+    // set rather than show a possibly-stale AI finding.
+    this._llmDiagnostics = [];
+    this._llmStaleDiagnostics = [];
+    this._setDeterministicDiagnostics(response.diagnostics);
+  }
+
+  /**
+   * Cancels and immediately runs any debounced change_cell POST still
+   * pending for this cell, awaiting it before returning.
+   *
+   * Must happen before _onCellExecuted posts run_cell. Executing a cell
+   * right after typing in it (plain Shift+Enter, the normal workflow)
+   * fires NotebookActions.executed almost immediately - a trivial kernel
+   * assignment finishes faster than CHANGE_DEBOUNCE_MS. Without this
+   * flush, run_cell can reach the backend while its notebook_IR entry
+   * still holds the *pre-edit* cell_code (events.py's RunCellEvent diffs
+   * cell_code against last_ran_code), so STALE analysis silently diffs
+   * old-against-old and finds nothing - confirmed as the actual cause of
+   * a live report ("edited cell 0, re-ran it, nothing happened"), not a
+   * hypothetical race.
+   */
+  private async _flushPendingEdit(cellWidget: Cell): Promise<void> {
+    const model = cellWidget.model;
+    const pending = this._pendingEdits.get(model.id);
+    if (pending === undefined) {
+      return;
+    }
+    window.clearTimeout(pending);
+    this._pendingEdits.delete(model.id);
+    await this._sendChangeCell(cellWidget);
   }
 
   private _onCellsChanged(
@@ -154,6 +267,7 @@ export class NotebookSessionManager {
   ): void {
     if (change.type === 'add') {
       this._llmDiagnostics = [];
+      this._llmStaleDiagnostics = [];
       void postEvent('add_cell', this._notebookId, {
         position: change.newIndex,
         kind: CODE_CELL_KIND,
@@ -166,6 +280,11 @@ export class NotebookSessionManager {
       }
     } else if (change.type === 'remove') {
       this._llmDiagnostics = [];
+      this._llmStaleDiagnostics = [];
+      const removedModel = change.oldValues[0];
+      if (removedModel) {
+        this._lastConfirmedCode.delete(removedModel.id);
+      }
       void postEvent('remove_cell', this._notebookId, {
         position: change.oldIndex
       }).then(response => this._setDeterministicDiagnostics(response.diagnostics));
@@ -182,15 +301,69 @@ export class NotebookSessionManager {
     if (!args.success) {
       return;
     }
-    const index = this._panel.content.widgets.indexOf(args.cell);
+    void this._handleCellExecuted(args.cell);
+  }
+
+  private async _handleCellExecuted(cell: Cell): Promise<void> {
+    // Make sure the backend has this cell's current code before computing
+    // anything below - see _flushPendingEdit's docstring for the race this
+    // closes.
+    await this._flushPendingEdit(cell);
+
+    const index = this._panel.content.widgets.indexOf(cell);
     if (index === -1) {
       return;
     }
-    // Running a cell doesn't change its source, so any existing LLM
+    // Running a cell doesn't change its source, so any existing LLM bug
     // finding about that code is still valid - only the deterministic set
     // is refreshed here.
     void postEvent('run_cell', this._notebookId, { cell_index: index }).then(
       response => this._setDeterministicDiagnostics(response.diagnostics)
+    );
+
+    // Read the pre-run code *before* anything below updates the tracked
+    // value - the LLM stale check needs the code this cell actually ran
+    // with last time, not what it's about to be updated to. Tracked
+    // (and kept current) regardless of whether the LLM check is enabled,
+    // so turning it on later immediately has an accurate baseline
+    // instead of comparing against nothing.
+    const model = cell.model;
+    const originalCode = this._lastConfirmedCode.get(model.id) ?? '';
+    const currentCode = model.sharedModel.getSource();
+
+    if (this._llmStaleEnabled) {
+      // This fires automatically on every cell run, unlike checkCellForBugs/
+      // checkNotebookForBugs (user-initiated, so a Notification.promise
+      // per call is appropriate) - a failure here (llm extra not
+      // installed, or its configured endpoint unreachable; both are real
+      // 400/500 responses from the server, not something that should ever
+      // throw uncaught - see dispatch.py's _build_detect_stale_cells_llm_event
+      // and handlers.py's broad except Exception) must not raise an
+      // unhandled promise rejection on every keystroke-triggered run. Warn
+      // the user once per session rather than either staying silent or
+      // popping a notification on every single cell execution.
+      void postEvent('detect_stale_cells_llm', this._notebookId, {
+        cell_index: index,
+        original_code: originalCode
+      })
+        .then(response => this._setLLMStaleDiagnostics(response.diagnostics))
+        .catch(error => this._warnLLMStaleFailure(error));
+    }
+
+    this._lastConfirmedCode.set(model.id, currentCode);
+  }
+
+  private _warnLLMStaleFailure(error: unknown): void {
+    console.error('nbfix: LLM stale-cell check failed', error);
+    if (this._llmStaleWarned) {
+      return;
+    }
+    this._llmStaleWarned = true;
+    Notification.warning(
+      `NBFix: LLM stale-cell detection is enabled but failed (${String(error)}). ` +
+        'Check that the llm extra is installed and its configured endpoint is reachable. ' +
+        'Not shown again this session.',
+      { autoClose: 8000 }
     );
   }
 
@@ -208,8 +381,18 @@ export class NotebookSessionManager {
     this._render();
   }
 
+  private _setLLMStaleDiagnostics(diagnostics?: INBFixDiagnostic[]): void {
+    if (diagnostics) {
+      this._llmStaleDiagnostics = diagnostics;
+    }
+    this._render();
+  }
+
   private _render(): void {
-    const merged = mergeDiagnostics(this._deterministicDiagnostics, this._llmDiagnostics);
+    const merged = mergeDiagnostics(
+      mergeDiagnostics(this._deterministicDiagnostics, this._llmDiagnostics),
+      this._llmStaleDiagnostics
+    );
 
     this._panel.content.widgets.forEach(cellWidget => {
       const view = getEditorView(cellWidget.editor);
@@ -233,5 +416,6 @@ export class NotebookSessionManager {
       window.clearTimeout(handle);
     }
     this._pendingEdits.clear();
+    this._lastConfirmedCode.clear();
   }
 }

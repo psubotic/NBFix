@@ -41,6 +41,12 @@ import os
 import time
 from dataclasses import dataclass
 
+from nbfix.analyses.dependency_analysis import build_fixpoint_dependency_edges
+from nbfix.analyses.type_shape_analysis import (
+    build_pruned_dependency_edges,
+    detect_type_changes,
+    label_stable_dependencies,
+)
 from nbfix.analyzer import NBFix
 from nbfix.constants import DATA_LEAK, IDLE, ISOLATED, STALE
 from nbfix.llm.client import LLMClient, LLMClientError
@@ -50,16 +56,66 @@ from nbfix.resource_utils.utils import read_json
 
 # Named presets rather than a raw context_mode x finding_types cross-product
 # - the benchmark's job is a small number of clean comparisons, not
-# exhaustive coverage. "deps+findings" is included in the mapping for
-# completeness/future use, but note: it's a no-op against llm_bench's
-# fixtures specifically, since those are deliberately chosen to never
-# trigger the four deterministic analyses (see llm_bench/README.md) - it
-# only becomes meaningful once a fixture set where those analyses actually
-# fire exists.
+# exhaustive coverage.
+#
+# Correction to an earlier assumption here: llm_bench's fixtures were
+# designed so the *seeded bug* never trips STALE/DATA_LEAK (those need
+# live run-history the static fixtures don't have), but that's not the
+# same as "the four analyses never fire at all" - IsolatedCellAnalysis
+# fires on the vast majority of cells in every size-tier fixture (85-98%
+# at mini through xlarge), because the distractor/filler cells are
+# deliberately self-contained and therefore genuinely isolated by that
+# analysis's own definition. So "deps+findings" (and "deps+isolated"
+# below) are real, non-trivial conditions on these fixtures - mostly
+# real-but-irrelevant-to-the-bug findings, which is exactly the "does
+# irrelevant real structure hurt" question, not a no-op.
+#
+# "deps+types" is a separate case again: it doesn't come from a registered
+# NBFix.all_analyses entry at all, so it can't be expressed as a
+# finding_types allowlist over nbfix.results. It's the standalone
+# type_shape_analysis.py prototype (see that file's docstring) fed in via
+# DetectBugsEvent's extra_findings escape hatch, computed fresh per run
+# in run_once() below rather than via nbfix.add_analyses/run_analyses.
+#
+# "deps-pruned" and "deps-labeled" are the two alternatives to
+# "deps+types" tested after finding 8 showed *adding* a type-change fact
+# can backfire (it shifts where the model anchors its answer, away from
+# the benchmark's crash-site ground truth). Instead of adding a new fact,
+# both act on the existing dependency graph, using the same
+# type/shape-stability walk (type_shape_analysis.py's
+# _compute_type_stability) to tell confirmed-stable (boring, unlikely to
+# be a type/shape-change bug) edges apart from everything else:
+#   - "deps-pruned" removes confirmed-stable edges outright (via
+#     build_pruned_dependency_edges, passed through DetectBugsEvent's
+#     dependency_edges override).
+#   - "deps-labeled" keeps the full graph but annotates each
+#     confirmed-stable edge as low-risk (via label_stable_dependencies,
+#     fed in through extra_findings like "deps+types").
+#
+# There used to be a separate "deps-fixpoint" config here, and
+# "deps-labeled" used to need an explicit dependency_edges override to
+# get the fixpoint graph. Both are gone now: context_builder.py's
+# build_dependency_edges *is* build_fixpoint_dependency_edges (a plain
+# alias - the old ID-ordered single-pass version was simply wrong, see
+# that module's comment and experiments.md findings 10-11), so every
+# config below that doesn't set its own dependency_edges override - i.e.
+# "deps", "deps+findings", "deps+isolated", "deps+types" - already gets
+# the order-independent fixpoint graph via DetectBugsEvent's normal
+# default path, the same one the real CLI/server extension use.
 _CONTEXT_CONFIGS = {
     "none": {"context_mode": "none", "finding_types": None},
     "deps": {"context_mode": "deps", "finding_types": None},
     "deps+findings": {"context_mode": "deps", "finding_types": {DATA_LEAK, STALE, IDLE, ISOLATED}},
+    "deps+isolated": {"context_mode": "deps", "finding_types": {ISOLATED}},
+    "deps+types": {"context_mode": "deps", "finding_types": None, "extra_findings": "type_shape"},
+    "deps-pruned": {"context_mode": "deps", "finding_types": None, "dependency_edges": "pruned"},
+    "deps-labeled": {"context_mode": "deps", "finding_types": None, "extra_findings": "stable_labels"},
+    # Isolated single-variable change from "deps-labeled": identical
+    # edges/labels, only label_stable_dependencies's message wording
+    # shrinks (~25 words -> ~6, same facts) - see that function's
+    # `terse` param docstring. Tests how sensitive the model's output is
+    # to a small, same-information prompt change, not a new mechanism.
+    "deps-labeled-terse": {"context_mode": "deps", "finding_types": None, "extra_findings": "stable_labels_terse"},
 }
 
 
@@ -188,6 +244,28 @@ def run_once(
         nbfix.add_analyses(list(finding_types))
         nbfix.run_analyses(-1, list(finding_types))
 
+    extra_findings_kind = context_config.get("extra_findings")
+    extra_findings = None
+    if extra_findings_kind:
+        if extra_findings_kind == "type_shape":
+            type_result = detect_type_changes(nbfix.notebook_IR)
+        elif extra_findings_kind == "stable_labels_terse":
+            type_result = label_stable_dependencies(nbfix.notebook_IR, terse=True)
+        else:
+            type_result = label_stable_dependencies(nbfix.notebook_IR)
+        extra_findings = [
+            error_info
+            for path_result in type_result.path_results
+            for error_info in path_result.error_infos
+        ]
+
+    dependency_edges_kind = context_config.get("dependency_edges")
+    dependency_edges = None
+    if dependency_edges_kind == "pruned":
+        dependency_edges = build_pruned_dependency_edges(nbfix.notebook_IR)
+    elif dependency_edges_kind == "fixpoint":
+        dependency_edges = build_fixpoint_dependency_edges(nbfix.notebook_IR)
+
     inner_client = LLMClient(
         base_url=config.base_url,
         model=config.model,
@@ -197,6 +275,7 @@ def run_once(
     event = DetectBugsEvent(
         "full", client=client,
         context_mode=context_config["context_mode"], finding_types=finding_types,
+        extra_findings=extra_findings, dependency_edges=dependency_edges,
     )
 
     start = time.monotonic()

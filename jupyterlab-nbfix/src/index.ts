@@ -1,14 +1,16 @@
 import { JupyterFrontEnd, JupyterFrontEndPlugin } from '@jupyterlab/application';
-import { ICommandPalette, Notification } from '@jupyterlab/apputils';
+import { Dialog, ICommandPalette, Notification, showDialog } from '@jupyterlab/apputils';
 import { IEditorExtensionRegistry } from '@jupyterlab/codemirror';
 import { INotebookTracker, NotebookPanel } from '@jupyterlab/notebook';
 
-import { NotebookSessionManager } from './manager';
+import { AnalysesDialogBody } from './analysesDialog';
+import { ANALYSIS_OPTIONS, NotebookSessionManager } from './manager';
 import { registerNBFixLinter } from './linter';
 
 namespace CommandIDs {
   export const checkCell = 'nbfix:check-cell-for-bugs';
   export const checkNotebook = 'nbfix:check-notebook-for-bugs';
+  export const chooseActiveAnalyses = 'nbfix:choose-active-analyses';
 }
 
 /**
@@ -80,8 +82,36 @@ const plugin: JupyterFrontEndPlugin<void> = {
       }
     });
 
+    commands.addCommand(CommandIDs.chooseActiveAnalyses, {
+      label: 'NBFix: Choose Active Analyses',
+      iconClass: 'jp-nbfix-icon',
+      isEnabled: () => !!tracker.currentWidget,
+      execute: async () => {
+        const panel = tracker.currentWidget;
+        const manager = panel && managers.get(panel);
+        if (!manager) {
+          return;
+        }
+        const body = new AnalysesDialogBody(ANALYSIS_OPTIONS, manager.activeAnalyses);
+        const result = await showDialog<Set<string>>({
+          title: 'Choose Active Analyses',
+          body,
+          buttons: [Dialog.cancelButton(), Dialog.okButton({ label: 'Apply' })]
+        });
+        if (!result.button.accept || !result.value) {
+          return;
+        }
+        try {
+          await manager.setActiveAnalyses(result.value);
+        } catch (error) {
+          Notification.error(`NBFix: failed to update active analyses - ${error}`);
+        }
+      }
+    });
+
     palette.addItem({ command: CommandIDs.checkNotebook, category: 'NBFix' });
     palette.addItem({ command: CommandIDs.checkCell, category: 'NBFix' });
+    palette.addItem({ command: CommandIDs.chooseActiveAnalyses, category: 'NBFix' });
   }
 };
 

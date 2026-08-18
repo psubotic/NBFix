@@ -5,6 +5,7 @@ import pytest
 pytest.importorskip("openai")
 
 from nbfix.llm.detect_bugs_event import DetectBugsEvent
+from nbfix.llm.detect_stale_cells_event import DetectStaleCellsEvent
 from nbfix.serverextension.dispatch import InvalidEventError, build_event
 
 
@@ -66,6 +67,32 @@ class TestDetectBugsDispatch(unittest.TestCase):
     def test_invalid_finding_types_raises(self):
         with self.assertRaises(InvalidEventError):
             build_event("detect_bugs", {"scope": "full", "finding_types": ["Not A Real Analysis"]})
+
+
+class TestDetectStaleCellsLLMDispatch(unittest.TestCase):
+    def test_builds_event_with_cell_index_and_original_code(self):
+        event = build_event(
+            "detect_stale_cells_llm", {"cell_index": 2, "original_code": "x = 10"}
+        )
+        self.assertIsInstance(event, DetectStaleCellsEvent)
+        self.assertEqual(event.cell_index, 2)
+        self.assertEqual(event.original_code, "x = 10")
+
+    def test_missing_cell_index_raises(self):
+        with self.assertRaises(InvalidEventError):
+            build_event("detect_stale_cells_llm", {"original_code": "x = 10"})
+
+    def test_missing_original_code_raises(self):
+        with self.assertRaises(InvalidEventError):
+            build_event("detect_stale_cells_llm", {"cell_index": 0})
+
+    def test_empty_original_code_is_accepted(self):
+        # "" is a real, meaningful value (a never-run cell) - must not be
+        # rejected the same way a genuinely missing param is.
+        event = build_event(
+            "detect_stale_cells_llm", {"cell_index": 0, "original_code": ""}
+        )
+        self.assertEqual(event.original_code, "")
 
 
 if __name__ == "__main__":

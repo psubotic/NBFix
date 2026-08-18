@@ -51,6 +51,33 @@ def _build_detect_bugs_event(params):
     return DetectBugsEvent(scope, cell_index, context_mode=context_mode, finding_types=finding_types)
 
 
+def _build_detect_stale_cells_llm_event(params):
+    # Same lazy-import guard as _build_detect_bugs_event, same reason.
+    try:
+        from ..llm.detect_stale_cells_event import DetectStaleCellsEvent
+    except ImportError as exc:
+        raise InvalidEventError(
+            "LLM stale-cell detection is not installed - pip install nbfix[llm]"
+        ) from exc
+
+    cell_index = params.get("cell_index")
+    if cell_index is None:
+        raise InvalidEventError("cell_index is required for detect_stale_cells_llm")
+
+    # original_code is required, not read from notebook_IR server-side -
+    # see DetectStaleCellsEvent's own docstring for why: last_ran_code
+    # gets overwritten by the same run_cell call that makes the cell's
+    # kernel value fresh, so there's no single moment where reading it
+    # here would be correct. The frontend tracks it itself (see
+    # manager.ts's _lastConfirmedCode), the same way it already owns
+    # cell identity/position for every other event.
+    original_code = params.get("original_code")
+    if original_code is None:
+        raise InvalidEventError("original_code is required for detect_stale_cells_llm")
+
+    return DetectStaleCellsEvent(int(cell_index), str(original_code))
+
+
 _EVENT_BUILDERS = {
     "open_notebook": lambda params: OpenNotebookEvent(params["notebook_json"]),
     "run_cell": lambda params: RunCellEvent(params["cell_index"]),
@@ -63,6 +90,7 @@ _EVENT_BUILDERS = {
     ),
     "close_notebook": lambda params: CloseNotebookEvent(),
     "detect_bugs": _build_detect_bugs_event,
+    "detect_stale_cells_llm": _build_detect_stale_cells_llm_event,
 }
 
 

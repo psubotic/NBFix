@@ -175,6 +175,71 @@ class TestDetectBugsEvent(unittest.TestCase):
 
         self.assertEqual(nbfix.active_analyses, ["Idle Cells Analysis"])
 
+    def test_extra_findings_render_alongside_finding_types(self):
+        registered = ErrorInfo(1, 1, "y", "TERMINAL", "idle")
+        results = {"Idle Cells Analysis": Result()}
+        results["Idle Cells Analysis"].add_path_result(PathResult([1], [registered]))
+        nbfix = FakeNBFix(self.notebook_IR, results=results)
+
+        extra = ErrorInfo(1, 1, "y", "TYPE_CHANGE", "'y' redefined from list to int")
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent(
+            "full", client=client, finding_types={"Idle Cells Analysis"}, extra_findings=[extra],
+        )
+
+        event.execute(nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("idle", user_prompt)
+        self.assertIn("redefined from list to int", user_prompt)
+
+    def test_extra_findings_alone_render_without_finding_types(self):
+        extra = ErrorInfo(1, 1, "y", "TYPE_CHANGE", "'y' redefined from list to int")
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client, extra_findings=[extra])
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("## Static analysis findings", user_prompt)
+        self.assertIn("redefined from list to int", user_prompt)
+
+    def test_no_extra_findings_omits_section_as_before(self):
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client)
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertNotIn("## Static analysis findings", user_prompt)
+
+    def test_dependency_edges_override_replaces_real_graph(self):
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        # Real graph would render "Cell 1 depends on: Cell 0" - the
+        # override below has no edges at all, so that line must not appear.
+        event = DetectBugsEvent("full", client=client, dependency_edges={0: set(), 1: set()})
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("## Dependency graph", user_prompt)
+        self.assertNotIn("Cell 1 depends on: Cell 0", user_prompt)
+        self.assertIn("(no cross-cell dependencies detected)", user_prompt)
+
+    def test_no_dependency_edges_override_uses_real_graph(self):
+        client = MagicMock()
+        client.chat_json.return_value = EMPTY_FINDINGS
+        event = DetectBugsEvent("full", client=client)
+
+        event.execute(self.nbfix)
+
+        _, user_prompt = client.chat_json.call_args.args
+        self.assertIn("## Dependency graph", user_prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

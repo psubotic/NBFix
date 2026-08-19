@@ -78,6 +78,23 @@ def _build_detect_stale_cells_llm_event(params):
     return DetectStaleCellsEvent(int(cell_index), str(original_code))
 
 
+def _build_detect_api_sequence_llm_event(params):
+    # Same lazy-import guard as _build_detect_bugs_event, same reason.
+    try:
+        from ..llm.detect_api_sequence_event import DetectApiSequenceEvent
+    except ImportError as exc:
+        raise InvalidEventError(
+            "LLM API-sequence detection is not installed - pip install nbfix[llm]"
+        ) from exc
+
+    # focus_cell is optional - omitted (or explicit null) scans the
+    # whole notebook (used when the toggle is switched on); given, it
+    # narrows the prompt to that cell's dependency-connected component
+    # (used on edit - see DetectApiSequenceEvent's docstring).
+    focus_cell = params.get("focus_cell")
+    return DetectApiSequenceEvent(None if focus_cell is None else int(focus_cell))
+
+
 _EVENT_BUILDERS = {
     "open_notebook": lambda params: OpenNotebookEvent(params["notebook_json"]),
     "run_cell": lambda params: RunCellEvent(params["cell_index"]),
@@ -91,6 +108,7 @@ _EVENT_BUILDERS = {
     "close_notebook": lambda params: CloseNotebookEvent(),
     "detect_bugs": _build_detect_bugs_event,
     "detect_stale_cells_llm": _build_detect_stale_cells_llm_event,
+    "detect_api_sequence_llm": _build_detect_api_sequence_llm_event,
 }
 
 

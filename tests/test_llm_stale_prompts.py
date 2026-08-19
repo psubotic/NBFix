@@ -29,9 +29,17 @@ class TestBuildStaleUserPrompt(unittest.TestCase):
 
 class TestStaleSystemPrompt(unittest.TestCase):
     def test_documents_stale_cells_schema(self):
+        """
+        Schema is a bare cell_id int list, not a {cell_id, message}
+        object - the message field was dropped to cut completion tokens
+        (measured ~7x) and latency (~3x) for live, interactive use. See
+        this module's docstring for the accuracy tradeoff that came with
+        it, and stale_result_mapping.py for the fixed replacement message
+        surfaced in the editor instead.
+        """
         self.assertIn("stale_cells", STALE_SYSTEM_PROMPT)
         self.assertIn("cell_id", STALE_SYSTEM_PROMPT)
-        self.assertIn("message", STALE_SYSTEM_PROMPT)
+        self.assertNotIn("message", STALE_SYSTEM_PROMPT)
 
     def test_asks_the_operational_question_not_the_passive_one(self):
         """

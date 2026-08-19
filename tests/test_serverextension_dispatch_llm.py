@@ -4,6 +4,7 @@ import pytest
 
 pytest.importorskip("openai")
 
+from nbfix.llm.detect_api_sequence_event import DetectApiSequenceEvent
 from nbfix.llm.detect_bugs_event import DetectBugsEvent
 from nbfix.llm.detect_stale_cells_event import DetectStaleCellsEvent
 from nbfix.serverextension.dispatch import InvalidEventError, build_event
@@ -93,6 +94,18 @@ class TestDetectStaleCellsLLMDispatch(unittest.TestCase):
             "detect_stale_cells_llm", {"cell_index": 0, "original_code": ""}
         )
         self.assertEqual(event.original_code, "")
+
+
+class TestDetectApiSequenceLLMDispatch(unittest.TestCase):
+    def test_builds_event_with_no_focus_cell(self):
+        # No focus_cell - scans the whole notebook in one call.
+        event = build_event("detect_api_sequence_llm", {})
+        self.assertIsInstance(event, DetectApiSequenceEvent)
+        self.assertIsNone(event.focus_cell)
+
+    def test_builds_event_with_focus_cell(self):
+        event = build_event("detect_api_sequence_llm", {"focus_cell": 2})
+        self.assertEqual(event.focus_cell, 2)
 
 
 if __name__ == "__main__":

@@ -64,9 +64,15 @@ class EventHandler(APIHandler):
         if event_name == "close_notebook":
             sessions.close(notebook_id)
 
-        self._respond_success(result)
+        # checked_cells is specific to DetectApiSequenceEvent (a plain
+        # attribute set during execute(), not part of Result - see that
+        # class's docstring for why) - getattr keeps every other event
+        # untouched rather than needing every Event subclass to carry a
+        # checked_cells attribute just so this line can read it uniformly.
+        checked_cells = getattr(event, "checked_cells", None)
+        self._respond_success(result, checked_cells)
 
-    def _respond_success(self, result):
+    def _respond_success(self, result, checked_cells=None):
         diagnostics = []
         # Result.dumps() returns '' (not '[]') when there are no findings -
         # json.loads('') would raise, so only attempt to parse when there's
@@ -79,7 +85,10 @@ class EventHandler(APIHandler):
             except (ValueError, AttributeError):
                 self._respond_error(500, "Failed to serialize analysis results")
                 return
-        self.finish(json.dumps({"status": "success", "diagnostics": diagnostics}))
+        response = {"status": "success", "diagnostics": diagnostics}
+        if checked_cells is not None:
+            response["checked_cells"] = sorted(checked_cells)
+        self.finish(json.dumps(response))
 
     def _respond_error(self, status_code, message):
         self.set_status(status_code)

@@ -34,6 +34,19 @@ and rephrases the final question as a safety call ("should NOT be
 executed") rather than a temporal one ("cannot yet be re-executed") -
 the latter phrasing is exactly what produced the "has not been updated"
 answer, since it reads equally well as "which cells are behind."
+
+Response schema changed from {cell_id, message} objects to a bare int
+list - measured via scripts/benchmark_stale_llm.py (--prompt-variant
+product vs hop_count, qwen2.5-coder:14b/7b against
+tests/resources/llm_bench_stale): dropping the free-text explanation cut
+completion tokens ~7x (77 -> 11 avg) and wall-clock latency ~3x (7.1s ->
+2.3s at 14b alone; ~6x combined with also switching to 7b). Real
+tradeoff, not free: the terse 14b variant reproducibly false-positived on
+the negative-control fixture (clean1) where the message-requiring variant
+got it right, suggesting having to articulate *why* a cell is stale acts
+as a self-check the bare-int format skips. Chosen anyway - for live,
+interactive use the latency was measured unusable, and staleness findings
+here are advisory, not a hard gate.
 """
 from .stale_context_builder import StaleDetectionContext
 
@@ -80,13 +93,9 @@ code, nothing has actually changed - respond with no findings.
 
 Respond with a single JSON object of exactly this shape and nothing else:
 
-{
-  "stale_cells": [
-    {"cell_id": <int>, "message": "<brief explanation of why running this cell now would be wrong>"}
-  ]
-}
+{"stale_cells": [<int>, ...]}
 
-List every cell that should NOT be executed next. If none, respond {"stale_cells": []}.
+List the cell_id of every cell that should NOT be executed next. If none, respond {"stale_cells": []}.
 """
 
 

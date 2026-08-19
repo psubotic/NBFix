@@ -74,9 +74,7 @@ class TestDetectStaleCellsEvent(unittest.TestCase):
         notebook_IR = make_notebook({0: "x = 99", 1: "y = x + 1", 2: "z = y + 1"})
         nbfix = FakeNBFix(notebook_IR)
         client = MagicMock()
-        client.chat_json.return_value = {
-            "stale_cells": [{"cell_id": 2, "message": "y hasn't been refreshed yet"}]
-        }
+        client.chat_json.return_value = {"stale_cells": [2]}
         event = DetectStaleCellsEvent(0, original_code="x = 10", client=client)
 
         result = event.execute(nbfix)

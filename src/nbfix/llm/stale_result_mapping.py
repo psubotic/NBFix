@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 # need cell_id downstream, never a real source location).
 _LINE = 1
 
+# stale_prompts.STALE_SYSTEM_PROMPT now asks for a bare cell_id list, not
+# a {cell_id, message} object per finding - dropping the free-text
+# explanation was measured to cut latency ~3x (see that module's
+# docstring). There's no per-cell explanation to surface anymore, so
+# every finding gets this fixed message instead.
+_MESSAGE = "LLM stale-cell check: this cell depends on a value that has not been refreshed since an upstream edit."
+
 
 def map_stale_findings_to_result(findings_json: dict, notebook_IR) -> Result:
     """
@@ -40,19 +47,9 @@ def map_stale_findings_to_result(findings_json: dict, notebook_IR) -> Result:
     return result
 
 
-def _build_error_info(finding, notebook_IR) -> ErrorInfo | None:
-    if not isinstance(finding, dict):
-        logger.warning("Skipping non-dict stale finding: %r", finding)
-        return None
-
-    cell_id = finding.get("cell_id")
+def _build_error_info(cell_id, notebook_IR) -> ErrorInfo | None:
     if not isinstance(cell_id, int) or isinstance(cell_id, bool) or cell_id not in notebook_IR:
-        logger.warning("Skipping stale finding with invalid/unknown cell_id: %r", finding)
-        return None
-
-    message = finding.get("message")
-    if not isinstance(message, str) or not message:
-        logger.warning("Skipping stale finding with missing message: %r", finding)
+        logger.warning("Skipping stale finding with invalid/unknown cell_id: %r", cell_id)
         return None
 
     return ErrorInfo(
@@ -60,5 +57,5 @@ def _build_error_info(finding, notebook_IR) -> ErrorInfo | None:
         line=_LINE,
         label="",
         error_type="LLM_STALE",
-        error_message=message,
+        error_message=_MESSAGE,
     )

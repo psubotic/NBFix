@@ -52,6 +52,11 @@ export interface INBFixDiagnostic {
 export interface INBFixEventResponse {
   status: 'success' | 'error';
   diagnostics?: INBFixDiagnostic[];
+  // Only present for detect_api_sequence_llm - which cell_ids the check
+  // actually considered, so a narrowed (focus_cell) scan's caller knows
+  // which prior findings are safe to discard vs untouched. See
+  // DetectApiSequenceEvent's docstring.
+  checked_cells?: number[];
   message?: string;
 }
 

@@ -28,9 +28,11 @@ class LLMClient:
         model: str,
         api_key: str = "not-needed",
         timeout: float = 60.0,
+        temperature: float = 0.0,
     ) -> None:
         self._client = openai.OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
         self._model = model
+        self._temperature = temperature
 
     def _create_completion(self, system_prompt: str, user_prompt: str):
         """
@@ -39,6 +41,17 @@ class LLMClient:
         endpoint has a known compatibility gap with the json_schema
         wrapper, so schema correctness is enforced downstream (by the
         result-mapping layer) instead of relied on here.
+
+        temperature defaults to 0 (greedy decoding), not left at the
+        provider's own default (non-zero) - every task this client is
+        used for is a yes/no or fixed-schema classification, not creative
+        generation, and near-zero temperature is standard practice there.
+        Concretely motivated by repeated observed instability at default
+        temperature across this project's LLM features (stale-cell
+        detection's clean1 false positive, api-sequence detection
+        flagging an unrelated cell / misattributing a finding to the
+        wrong cell - both confirmed via direct repeated calls to be
+        sampling noise, not a code bug) - not a hypothetical concern.
         """
         try:
             return self._client.chat.completions.create(
@@ -48,6 +61,7 @@ class LLMClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 response_format={"type": "json_object"},
+                temperature=self._temperature,
             )
         except openai.APIConnectionError as exc:
             raise LLMClientError(

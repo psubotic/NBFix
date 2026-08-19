@@ -107,3 +107,55 @@ async def test_detect_bugs_unreachable_endpoint_returns_500_not_crash(
     )
     assert code == 500
     assert payload["status"] == "error"
+
+
+@patch("nbfix.llm.client.openai.OpenAI")
+async def test_detect_bugs_response_has_no_checked_cells_key(mock_openai_cls, jp_fetch):
+    """
+    checked_cells is specific to detect_api_sequence_llm - must not leak
+    into every other event's response just because handlers.py now reads
+    it generically via getattr.
+    """
+    mock_client = mock_openai_cls.return_value
+    mock_client.chat.completions.create.return_value = _mock_openai_response('{"findings": []}')
+
+    notebook_id = "nb5.ipynb"
+    await _post_event(jp_fetch, "open_notebook", notebook_id, {"notebook_json": TEST_NOTEBOOK})
+    code, payload = await _post_event(jp_fetch, "detect_bugs", notebook_id, {"scope": "full"})
+    assert code == 200
+    assert "checked_cells" not in payload
+
+
+@patch("nbfix.llm.client.openai.OpenAI")
+async def test_detect_api_sequence_llm_full_scan_returns_all_checked_cells(mock_openai_cls, jp_fetch):
+    """
+    focus_cell omitted (the "toggle switched on" case) scans everything -
+    checked_cells is always included for this event (unlike other
+    events - see the no-leak regression test above), covering every
+    cell in the full-scan case. This keeps the frontend's merge logic
+    uniform: always "drop old findings for checked_cells, add the new
+    ones" - a full scan just naturally covers every cell.
+    """
+    mock_client = mock_openai_cls.return_value
+    mock_client.chat.completions.create.return_value = _mock_openai_response('{"findings": []}')
+
+    notebook_id = "nb6.ipynb"
+    await _post_event(jp_fetch, "open_notebook", notebook_id, {"notebook_json": TEST_NOTEBOOK})
+    code, payload = await _post_event(jp_fetch, "detect_api_sequence_llm", notebook_id, {})
+    assert code == 200
+    assert sorted(payload["checked_cells"]) == [0, 1]
+
+
+@patch("nbfix.llm.client.openai.OpenAI")
+async def test_detect_api_sequence_llm_focused_scan_returns_checked_cells(mock_openai_cls, jp_fetch):
+    mock_client = mock_openai_cls.return_value
+    mock_client.chat.completions.create.return_value = _mock_openai_response('{"findings": []}')
+
+    notebook_id = "nb7.ipynb"
+    await _post_event(jp_fetch, "open_notebook", notebook_id, {"notebook_json": TEST_NOTEBOOK})
+    code, payload = await _post_event(
+        jp_fetch, "detect_api_sequence_llm", notebook_id, {"focus_cell": 0}
+    )
+    assert code == 200
+    assert "checked_cells" in payload
+    assert isinstance(payload["checked_cells"], list)

@@ -48,6 +48,35 @@ class TestLLMClient(unittest.TestCase):
         )
 
     @patch("nbfix.llm.client.openai.OpenAI")
+    def test_temperature_defaults_to_zero(self, mock_openai_cls):
+        """
+        Regression guard: every task this client serves is a fixed-schema
+        classification, not creative generation, and default (non-zero)
+        provider temperature was directly observed to cause instability -
+        see client.py's _create_completion docstring for the specific
+        confirmed cases (not hypothetical).
+        """
+        mock_client = mock_openai_cls.return_value
+        mock_client.chat.completions.create.return_value = _make_completion_response("{}")
+
+        client = LLMClient(base_url="http://localhost:11434/v1", model="qwen2.5-coder:14b")
+        client.chat_json("system prompt", "user prompt")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        self.assertEqual(kwargs["temperature"], 0.0)
+
+    @patch("nbfix.llm.client.openai.OpenAI")
+    def test_temperature_is_configurable(self, mock_openai_cls):
+        mock_client = mock_openai_cls.return_value
+        mock_client.chat.completions.create.return_value = _make_completion_response("{}")
+
+        client = LLMClient(base_url="http://localhost:11434/v1", model="qwen2.5-coder:14b", temperature=0.7)
+        client.chat_json("system prompt", "user prompt")
+
+        _, kwargs = mock_client.chat.completions.create.call_args
+        self.assertEqual(kwargs["temperature"], 0.7)
+
+    @patch("nbfix.llm.client.openai.OpenAI")
     def test_connection_error_raises_llm_client_error(self, mock_openai_cls):
         mock_client = mock_openai_cls.return_value
         mock_client.chat.completions.create.side_effect = _make_dummy_connection_error()

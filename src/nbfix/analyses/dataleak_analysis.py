@@ -19,12 +19,18 @@ from .analysis import Analysis
 class DataLeakAnalysis(Analysis):
     def __init__(self):
         super().__init__()
-        self.resetKB = {'read_csv', 'genfromtxt'}
-        self.taintKB = {'normalize', 'fit_transform'}
+        self.resetKB = {'read_csv', 'genfromtxt', 'read_excel', 'read_parquet', 'read_sql', 'read_json', 'read_pickle', 'load', 'loadtxt'}
+        self.taintKB = {'normalize', 'fit_transform', 'fit_resample'}
         self.trainKB = {'fit', 'train'}
-        self.testKB = {'predict'}
+        self.testKB = {'predict', 'predict_proba', 'score', 'decision_function', 'evaluate'}
         self.splitKB = {'train_test_split'}
         self.dropKB = {'drop'}
+        # Separate from testKB deliberately: .transform() is called
+        # routinely on BOTH train and test splits (X_train_scaled =
+        # scaler.transform(X_train) is completely normal), so it can't be
+        # treated as a "this is test data" signal the way .predict() is -
+        # see transform_transformer's docstring for what it actually does.
+        self.transformKB = {'transform'}
         self.tts_count = 0
         self.necessary = set[int]()
         self.abstract_state = DataLeakAbstractState()
@@ -81,9 +87,13 @@ class DataLeakAnalysis(Analysis):
                 x_kw = self._extract_kw(cfg_node, 'x')
                 x = x_kw[0].value.id if x_kw else None
                 self._clone_assign(as_transformed, cfg_node, override_source=x).usages.add(Usage.TRAIN)
+                self._record_fit_on_receiver(cfg_node, as_transformed)
 
             elif func_name in self.testKB:
                 self._clone_assign(as_transformed, cfg_node).usages.add(Usage.TEST)
+
+            elif func_name in self.transformKB:
+                self.transform_transformer(cfg_node, as_transformed)
 
             else:
                 # All other function calls not related to Data Leak.
@@ -217,6 +227,90 @@ class DataLeakAnalysis(Analysis):
                 
             
         self._clone_assign(as_transformed, cfg_node, override_source= new_source).apply_taint(new_source= new_source)
+
+
+    def _record_fit_on_receiver(self, cfg_node, as_transformed) -> None:
+        '''
+        When a trainKB call (.fit()/.train()) is a method call on a
+        receiver object - e.g. `scaler.fit(X)`, as opposed to a bare/
+        module-level call - records on the RECEIVER's own state entry
+        (as_transformed.state["scaler"], not the fit call's assigned
+        result) which data source it was fit with, and whether that
+        source's rows were still the full, untouched range at fit time
+        (i.e. this fit happened before ANY split ever touched it).
+
+        transform_transformer consults this later to distinguish the real
+        leak (fit on the whole dataset, transform() separately per split)
+        from the correct, recommended pattern (fit on an already-split
+        subset, transform() both splits) - both are the same call shape,
+        so this is the actual distinguishing signal, not something a
+        keyword-set addition alone could express. See that method's
+        docstring for the full mechanism.
+
+        Silently does nothing if the shape doesn't match what's needed
+        (not a method call on a plain-Name receiver, argument isn't a
+        plain tracked variable) - this is a best-effort enhancement on
+        top of the existing Usage.TRAIN tagging above, never required for
+        that to keep working, and never raises.
+        '''
+        func = cfg_node.ast_node.func
+        if not (isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)):
+            return
+        receiver = func.value.id
+
+        if not (cfg_node.ast_node.args and isinstance(cfg_node.ast_node.args[0], ast.Name)):
+            return
+        arg_name = cfg_node.ast_node.args[0].id
+
+        arg_domain = as_transformed.state.get(arg_name)
+        if arg_domain is None or arg_domain.dull:
+            return
+
+        was_full = bool(arg_domain.dfs.frames) and all(
+            df.rows.is_full() for l_df in arg_domain.dfs.frames.values() for df in l_df
+        )
+
+        receiver_domain = as_transformed.state.get(receiver)
+        if receiver_domain is None:
+            receiver_domain = DataLeakAbstractDomain(dull=True)
+            as_transformed.state[receiver] = receiver_domain
+        receiver_domain.fitted_from = (arg_name, was_full)
+
+
+    def transform_transformer(self, cfg_node, as_transformed) -> None:
+        '''
+        Handles `receiver.transform(arg)`.
+
+        If `receiver` was previously recorded (via _record_fit_on_receiver)
+        as fit on a source that was still the FULL, unsplit range at fit
+        time, this is the real leak pattern - fit on the whole dataset,
+        then transform() called separately per split - so the result is
+        tainted using the ORIGINAL fit source (not this call's own
+        argument). That makes every split's .transform() output share one
+        tainted source, the same shape fit_transform-before-split already
+        produces, so DataLeakAbstractState.condition()'s existing weak-
+        overlap+taint check catches it once those results reach a
+        trainKB/testKB call downstream - no changes needed there.
+
+        Otherwise (receiver was fit on already-split/truncated rows - the
+        correct, recommended pattern - or was never recorded as fit()-ed
+        at all) falls back to taint_transformer's existing behavior:
+        taint from THIS call's own argument, same as fit_transform. That
+        keeps every split's .transform() output on its OWN distinct
+        source, so no false leak - verified directly against a fixture of
+        exactly this pattern (fit on train only, transform both splits)
+        before trusting it, not assumed.
+        '''
+        func = cfg_node.ast_node.func
+        receiver = func.value.id if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) else None
+        receiver_domain = as_transformed.state.get(receiver) if receiver else None
+
+        if receiver_domain and receiver_domain.fitted_from and receiver_domain.fitted_from[1]:
+            new_source = receiver_domain.fitted_from[0]
+            self._clone_assign(as_transformed, cfg_node, override_source=new_source).apply_taint(new_source=new_source)
+            return
+
+        self.taint_transformer(cfg_node, as_transformed)
 
 
     def iloc_transformer(self, cfg_node, as_transformed):

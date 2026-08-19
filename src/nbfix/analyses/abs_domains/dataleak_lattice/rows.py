@@ -16,6 +16,16 @@ class Rows:
     def is_empty(self) -> bool:
         return self.start == -1 and self.end == -1
 
+    def is_full(self) -> bool:
+        '''
+        True for the default, never-truncated range (start=0, end=maxsize)
+        - matching what reset_transformer initializes a freshly-loaded
+        source with, before any split/slice narrows it. Used by
+        DataLeakAnalysis to tell "fit on the whole, unsplit dataset" apart
+        from "fit on an already-split subset."
+        '''
+        return self.start == 0 and self.end == sys.maxsize
+
     def lw(self):
         return self.start
     def up(self):

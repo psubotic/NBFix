@@ -14,7 +14,7 @@ class Usage(Enum):
     NONE = auto()
 
 class DataLeakAbstractDomain:
-    def __init__(self, dfs: DataFrameSet = DataFrameSet(), taint: bool = False, usages: set[Usage] = set[Usage](), dull=False) -> None:
+    def __init__(self, dfs: DataFrameSet = DataFrameSet(), taint: bool = False, usages: set[Usage] = set[Usage](), dull=False, fitted_from: tuple[str, bool] = None) -> None:
         '''
         Abstract domain that keeps track of data frames, if those data frames are tainted,
         if any data frames have been used for testing or training
@@ -23,6 +23,16 @@ class DataLeakAbstractDomain:
         self.dfs: DataFrameSet = dfs
         self.taint: bool = taint
         self.usages: set[Usage] = usages
+        # Set on a RECEIVER variable (e.g. "scaler" in `scaler.fit(X)`),
+        # not on an assigned result - (source_name, was_full_rows_at_fit_time).
+        # Consulted by DataLeakAnalysis.transform_transformer to tell "fit on
+        # the whole, unsplit dataset, transform() separately per split" (a
+        # real leak) apart from "fit on an already-split subset, transform()
+        # both splits" (the correct, recommended pattern) - both look
+        # identical as a call sequence, so this is what actually
+        # distinguishes them. See dataleak_analysis.py's
+        # _record_fit_on_receiver/transform_transformer docstrings.
+        self.fitted_from: tuple[str, bool] = fitted_from
 
     def apply_taint(self, new_source: str) -> DataLeakAbstractDomain:
         self.taint = True
@@ -86,7 +96,8 @@ class DataLeakAbstractState(AbstractState):
                 self.state[other_var].dfs | other_domain.dfs,
                 self.state[other_var].taint | other_domain.taint,
                 self.state[other_var].usages.union(other_domain.usages),
-                self.state[other_var].dull | other_domain.dull
+                self.state[other_var].dull | other_domain.dull,
+                self.state[other_var].fitted_from or other_domain.fitted_from
             )
 
         return self

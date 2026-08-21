@@ -24,7 +24,7 @@ and run cells; never repairs.
 </td>
 </tr>
 <tr>
-<td width="72"><img src="assets/nbfix-logo.jpeg" alt="NBFix" width="64"></td>
+<td width="72"></td>
 <td>
 
 **[NBFix](nbfix/)** - batch analysis and repair for scripts. Data

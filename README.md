@@ -11,39 +11,16 @@ library plus three tools, each with one job.
 
 ## The tools
 
-<table>
-<tr>
-<td width="72"><img src="assets/nbharness-logo.jpeg" alt="NBHarness" width="64"></td>
-<td>
-
-**[NBHarness](nbharness/)** - live, real-time notebook diagnostics.
-Stale/idle/isolated cells and data leakage, plus optional LLM-assisted
-stale-cell and API-call-sequence detection. Flags problems as you edit
-and run cells; never repairs.
-
-</td>
-</tr>
-<tr>
-<td width="72"></td>
-<td>
-
-**[NBFix](nbfix/)** - batch analysis and repair for scripts. Data
-leakage plus optional LLM-assisted bug detection. The only tool that
-repairs; does not handle notebooks.
-
-</td>
-</tr>
-<tr>
-<td width="72"><img src="assets/nbcompile-logo.jpeg" alt="NBCompile" width="64"></td>
-<td>
-
-**[NBCompile](nbcompile/)** - notebook → script converter. Uses the
-real dependency graph to compute true execution order, not a naive
-cell-order dump. Not implemented yet - currently a package stub.
-
-</td>
-</tr>
-</table>
+- **[NBHarness](nbharness/)** - live, real-time notebook diagnostics.
+  Stale/idle/isolated cells and data leakage, plus optional LLM-assisted
+  stale-cell and API-call-sequence detection. Flags problems as you edit
+  and run cells; never repairs.
+- **[NBFix](nbfix/)** - batch analysis and repair for scripts. Data
+  leakage plus optional LLM-assisted bug detection. The only tool that
+  repairs; does not handle notebooks.
+- **[NBCompile](nbcompile/)** - notebook → script converter. Uses the
+  real dependency graph to compute true execution order, not a naive
+  cell-order dump. Not implemented yet - currently a package stub.
 
 All three are built on **[nbcore](nbcore/)**: the parser, CFG builder,
 def-use analysis, dependency graph, and analysis framework they share.

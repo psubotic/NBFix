@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nbfix"
+version = "0.1.0"
+description = "Batch analysis and repair for data science scripts - the only NBTooling tool that repairs"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "nbcore",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+# LLM-assisted bug detection - transitively pulls in nbcore's own llm
+# extra (client/config transport plus the shared detect_bugs_event
+# feature) rather than redeclaring openai here.
+llm = [
+    "nbcore[llm]",
+]
+
+[project.scripts]
+nbfix = "nbfix.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nbfix"]

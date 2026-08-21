@@ -1,39 +1,51 @@
-# Running NBFix
+# Running NBTooling
 
-NBFix can be used three ways: as a standalone CLI, through a VS Code
-extension prototype, or through a JupyterLab extension. This document covers
-setup and commands for all three.
+NBTooling is three tools sharing one core library (`nbcore`):
 
-## 1. Command line (`nbfix` CLI)
+- **NBHarness** (`nbharness`) - live, real-time notebook diagnostics.
+  Stale/idle/isolated cells and data leakage, plus optional LLM-assisted
+  stale-cell and API-call-sequence detection. Flags problems; never
+  repairs. Works on notebooks only.
+- **NBFix** (`nbfix`) - batch analysis and repair for scripts. Data
+  leakage plus optional LLM-assisted bug detection. Works on scripts
+  only; does not handle notebooks.
+- **NBCompile** - notebook → script converter. Not built yet.
 
-This is the only interface that's fully working today - no server, no
-editor integration, just a notebook or script in, JSON diagnostics out.
+This document covers setup and commands for both working tools, as a
+CLI and (for NBHarness) through a JupyterLab extension.
 
-### Setup
+## Setup
 
 ```bash
-git clone git@github.com:psubotic/NBFix.git
-cd NBFix
+git clone git@github.com:NB-Tooling/NBTooling.git
+cd NBTooling
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -e ".[dev]"
+
+# nbcore is a dependency of both tools but isn't published anywhere, so
+# install it explicitly alongside whichever tool(s) you need.
+pip install -e "./nbcore[dev]" -e "./nbharness[dev]" -e "./nbfix[dev]"
 ```
 
-### Usage
+Install just one tool (plus `nbcore`) if you only need it, e.g.
+`pip install -e "./nbcore[dev]" -e "./nbfix[dev]"` for NBFix alone.
+
+## 1. NBHarness CLI (notebooks)
+
+Batch/one-shot mode - the same analyses the live JupyterLab extension
+(section 3) runs continuously, run once against a notebook file.
 
 ```bash
-nbfix -f <path-to-notebook-or-script> -a <analysis-name> [<analysis-name> ...] [-s <start-cell>] [-l <level>]
+nbharness -f <path-to-notebook> -a <analysis-name> [<analysis-name> ...] [-s <start-cell>] [-l <level>]
 ```
 
 | Flag | Meaning |
 | --- | --- |
-| `-f`, `--filename` | Path to a `.ipynb` notebook or `.py` script. Mutually exclusive with `-n`. |
+| `-f`, `--filename` | Path to a `.ipynb` notebook. Mutually exclusive with `-n`. |
 | `-n`, `--notebook` | Currently broken - see note below. Use `-f` instead. |
-| `-a`, `--analyses` | One or more analysis names (space-separated), see table below. Required. |
+| `-a`, `--analyses` | One or more analysis names (space-separated), see table below. Required unless using `--detect-bugs`/`--detect-stale-cells`. |
 | `-s`, `--start` | Cell id to start the analysis from. Default `0`. |
 | `-l`, `--level` | Analysis depth. Default `5`. |
-
-Only four analyses are actually implemented and safe to pass to `-a`:
 
 | Analysis name (pass exactly as shown) |
 | --- |
@@ -42,28 +54,11 @@ Only four analyses are actually implemented and safe to pass to `-a`:
 | `Idle Cells Analysis` |
 | `Isolated Cells Analysis` |
 
-`Fresh Cells Analysis` and `Safe Path Analysis` exist as constants in the
-code but have no implementation behind them - passing either to `-a` raises
-a `KeyError` and crashes the CLI.
-
 ### Examples
 
-Run one analysis on a notebook:
-
 ```bash
-nbfix -f tests/resources/Basic.ipynb -a "Idle Cells Analysis"
-```
-
-Run multiple analyses at once:
-
-```bash
-nbfix -f tests/resources/dataleak_true.ipynb -a "Data Leak Analysis" "Stale Cells Analysis"
-```
-
-Analyze a plain Python script instead of a notebook:
-
-```bash
-nbfix -f my_script.py -a "Idle Cells Analysis"
+nbharness -f tests/resources/Basic.ipynb -a "Idle Cells Analysis"
+nbharness -f tests/resources/dataleak_true.ipynb -a "Data Leak Analysis" "Stale Cells Analysis"
 ```
 
 Output is a JSON array of per-cell results printed to stdout, e.g.:
@@ -78,58 +73,59 @@ string on the command line, but the CLI passes that string straight to
 `TypeError: string indices must be integers, not 'str'`. Use `-f` with a
 file path instead.
 
-## 2. VS Code extension
+### LLM-assisted detection (optional, `nbharness[llm]`)
 
-**Status: unfinished prototype, not currently runnable.** `extension/`
-predates the JupyterLab extension and was never completed:
+```bash
+nbharness -f tests/resources/Basic.ipynb --detect-bugs --scope full
+nbharness -f tests/resources/Basic.ipynb --detect-stale-cells --cell 0
+```
 
-- There's no `package.json`, so it can't be built or installed as a real
-  VS Code extension (`vsce package` / `code --install-extension` have
-  nothing to work with).
-- It talks to `nbfix.server` (`src/nbfix/server.py`) over a raw TCP
-  socket on port 9999, but that server module uses non-relative imports
-  (`from events import *`), so it only runs if launched as a loose script
-  from inside `src/nbfix/` with that directory on `sys.path` - it does
-  not work when NBFix is installed normally as a package.
-- `extension/src/constants.ts` hardcodes the server's location as a
-  Windows-style path (`SERVER_PATH = "\nbfix\src\server.py"`), so even
-  the socket-spawning logic assumes a specific machine layout.
+Points at a local Ollama instance by default; override with the
+`NBCORE_LLM_BASE_URL`/`NBCORE_LLM_MODEL` env vars (shared with NBFix's
+LLM features - see nbcore's `llm/config.py`).
 
-If you want to pick this up and finish it, the missing pieces are: a
-`package.json` (`vscode` extension manifest + esbuild/webpack config), a
-fixed `nbfix.server` entry point using relative imports so it runs via
-`python -m nbfix.server`, and a cross-platform way to locate that
-entry point instead of the hardcoded path in `constants.ts`. Until then,
-there's no working setup/run sequence to give here.
+## 2. NBFix CLI (scripts)
 
-## 3. JupyterLab extension
+Same shape, scripts only - no `-n`, no STALE/IDLE/ISOLATED (those are
+notebook-edit-lifecycle analyses with no script analog).
 
-This is the fully working, live-diagnostics integration: squiggly
-underlines on notebook cells as you edit, add, remove, and run them. It's
-split into two packages so installing the JupyterLab UI (which needs
-`jupyterlab` and a Node/npm toolchain) never weighs down a plain
-`pip install nbfix`:
+```bash
+nbfix -f <path-to-script.py> -a "Data Leak Analysis" [-s <start>] [-l <level>]
+nbfix -f <path-to-script.py> --detect-bugs --scope full
+```
 
-- `nbfix[jupyter]` - the `jupyter_server` REST extension
-  (`src/nbfix/serverextension/`) that runs NBFix's analysis engine and
-  returns diagnostics over HTTP. Pure Python, no Node required.
-- `jupyterlab-nbfix/` - the JupyterLab labextension (TypeScript) that
+A script is split into pseudo-cells at top-level-statement boundaries
+before analysis, so the same dependency-graph/context-building
+machinery NBHarness uses for notebook cells applies here too.
+
+## 3. JupyterLab extension (NBHarness only)
+
+The fully working, live-diagnostics integration: squiggly underlines on
+notebook cells as you edit, add, remove, and run them. Split into two
+packages so installing the JupyterLab UI (which needs `jupyterlab` and a
+Node/npm toolchain) never weighs down a plain `pip install nbharness`:
+
+- `nbharness[jupyter]` - the `jupyter_server` REST extension
+  (`nbharness/src/nbharness/serverextension/`) that runs NBHarness's
+  analysis engine and returns diagnostics over HTTP. Pure Python, no
+  Node required.
+- `jupyterlab-nbharness/` - the JupyterLab labextension (TypeScript) that
   calls that API and renders diagnostics via CodeMirror. Building it
   requires Node/npm.
 
 ### Setup
 
 ```bash
-git clone git@github.com:psubotic/NBFix.git
-cd NBFix
+git clone git@github.com:NB-Tooling/NBTooling.git
+cd NBTooling
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 
-# 1. Install the core package + server extension
-pip install -e ".[jupyter]"
+# 1. Install nbcore + NBHarness with the server extension
+pip install -e "./nbcore" -e "./nbharness[jupyter]"
 
 # 2. Build and install the labextension (requires Node.js/npm)
-pip install ./jupyterlab-nbfix
+pip install ./jupyterlab-nbharness
 ```
 
 The second `pip install` runs `npm install` and a webpack build under the
@@ -140,10 +136,10 @@ first time.
 
 ```bash
 jupyter server extension list
-# should show: nbfix.serverextension  enabled  OK
+# should show: nbharness.serverextension  enabled  OK
 
 jupyter labextension list
-# should show: jupyterlab-nbfix v0.1.0  enabled  OK  (python, nbfix)
+# should show: jupyterlab-nbharness v0.1.0  enabled  OK  (python, nbharness)
 ```
 
 ### Run it
@@ -159,10 +155,10 @@ JupyterLab is running.
 
 ### Rebuilding after frontend changes
 
-If you edit `jupyterlab-nbfix/src/*.ts`, rebuild with:
+If you edit `jupyterlab-nbharness/src/*.ts`, rebuild with:
 
 ```bash
-cd jupyterlab-nbfix
+cd jupyterlab-nbharness
 npm run build:prod
 ```
 
@@ -176,8 +172,8 @@ self-contained image, so you don't need Node, npm, or a Python venv on your
 own machine at all:
 
 ```bash
-docker build -t nbfix-jupyterlab .
-docker run -p 8888:8888 -v "$(pwd):/home/nbfix/work" nbfix-jupyterlab
+docker build -t nbharness-jupyterlab .
+docker run -p 8888:8888 -v "$(pwd):/home/nbharness/work" nbharness-jupyterlab
 ```
 
 JupyterLab generates a fresh access token on every start and prints it to
@@ -190,11 +186,11 @@ http://127.0.0.1:8888/lab?token=<token>
 ```
 
 and open that URL in a browser. The `-v` mount above puts your local
-directory at `/home/nbfix/work` inside the container, so notebooks you
-open/save there persist on your host machine; drop it if you just want to
-try NBFix against the container's own filesystem.
+directory at `/home/nbharness/work` inside the container, so notebooks
+you open/save there persist on your host machine; drop it if you just
+want to try NBHarness against the container's own filesystem.
 
 The build is a multi-stage Dockerfile - Node.js is only used in the build
 stage to compile the labextension and never ends up in the final image, so
-the runtime image (~540MB) is close to a plain JupyterLab install rather
-than carrying a full Node toolchain.
+the runtime image is close to a plain JupyterLab install rather than
+carrying a full Node toolchain.

@@ -4,7 +4,7 @@
 
 # NBFix
 
-[![Tests](https://github.com/psubotic/NBFix/actions/workflows/tests.yml/badge.svg)](https://github.com/psubotic/NBFix/actions/workflows/tests.yml)
+[![Tests](https://github.com/NB-Tooling/NBTooling/actions/workflows/tests.yml/badge.svg)](https://github.com/NB-Tooling/NBTooling/actions/workflows/tests.yml)
 
 Static analysis + LLM-assisted bug detection for data science notebooks.
 
